@@ -1209,7 +1209,7 @@ const UserMenu = ({ profile, onSaveProfile, onLogout }) => {
       </button>
       {open && (
         <div
-          className="absolute bottom-12 left-1/2 z-[300] w-56 -translate-x-1/2 overflow-hidden rounded-2xl border border-white/70 backdrop-blur-[40px]"
+          className="absolute bottom-0 left-full z-[300] mb-0 ml-3 w-56 overflow-hidden rounded-2xl border border-white/70 backdrop-blur-[40px]"
           style={{ background: "rgba(255,255,255,.96)", boxShadow: "0 16px 44px -12px rgba(15,23,42,.3), inset 0 1px 0 rgba(255,255,255,.9)" }}
         >
           <div className="border-b border-slate-200/50 px-4 py-3">
@@ -2077,8 +2077,7 @@ function buildCommands({ setNav, openDeal, applyQuickFilter, allDeals, openNewDe
     { id: "nav-dashboard", group: "Naviga", icon: LayoutDashboard, label: "Vai a Dashboard", action: () => setNav("dashboard"), keywords: "home overview panoramica" },
     { id: "nav-portfolio", group: "Naviga", icon: Briefcase, label: "Vai a Portafoglio", action: () => setNav("portfolio"), keywords: "deal screener pratiche lista" },
     { id: "nav-map", group: "Naviga", icon: Map, label: "Vai a Mappa Asset", action: () => setNav("map"), keywords: "geografia città google maps" },
-    { id: "nav-report", group: "Naviga", icon: FileText, label: "Vai a Report", action: () => setNav("report"), keywords: "documenti pdf" },
-    { id: "nav-settings", group: "Naviga", icon: Settings, label: "Vai a Impostazioni", action: () => setNav("settings"), keywords: "profilo account" },
+    { id: "nav-settings", group: "Naviga", icon: Settings, label: "Vai a Impostazioni", action: () => setNav("settings"), keywords: "profilo configurazione account" },
   ];
   const actionCommands = [
     { id: "action-new-deal", group: "Azioni", icon: Plus, label: "Aggiungi nuova pratica", action: openNewDeal, keywords: "nuovo pratica aggiunge manuale form inserisci" },
@@ -3483,17 +3482,15 @@ function AuthenticatedApp() {
     { k: "dashboard", I: LayoutDashboard, l: "Dashboard" },
     { k: "portfolio", I: Briefcase, l: "Portafoglio" },
     { k: "map", I: Map, l: "Mappa" },
-    { k: "report", I: FileText, l: "Report" },
     { k: "settings", I: Settings, l: "Impostazioni" },
   ];
-  const VIEW_TITLES = { dashboard: "Dashboard", portfolio: "Portafoglio", map: "Mappa Asset", report: "Report", settings: "Impostazioni" };
+  const VIEW_TITLES = { dashboard: "Dashboard", portfolio: "Portafoglio", map: "Mappa Asset", settings: "Impostazioni" };
 
   const renderView = () => {
     switch (nav) {
       case "dashboard": return <DashboardView onOpenDeal={openDeal} allDeals={allDeals} onOpenNewDeal={(tipo) => { setEditDeal({ t: tipo }); setNewDealOpen(true); }} onNavPortfolio={() => setNav("portfolio")} />;
       case "portfolio": return <PortfolioView onOpenDeal={openDeal} quickFilter={quickFilter} compareIds={compareIds} onToggleCompare={toggleCompare} onOpenCompare={openCompare} allDeals={allDeals} onEditDeal={handleEditDeal} onDeleteDeal={handleDeleteDeal} onApproveDeal={handleApproveDeal} onSuspendDeal={handleSuspendDeal} />;
       case "map": return <MapView onOpenDeal={openDeal} allDeals={allDeals} onCityFilter={handleCityFilter} />;
-      case "report": return <ReportView allDeals={allDeals} generatedReports={generatedReports} onGenerateReport={addReport} />;
       case "settings": return <SettingsView profile={profile} onSaveProfile={saveProfile} allDeals={allDeals} />;
       default: return <DashboardView onOpenDeal={openDeal} allDeals={allDeals} />;
     }
