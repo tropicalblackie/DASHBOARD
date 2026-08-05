@@ -2891,7 +2891,7 @@ const MapView = memo(({ onOpenDeal, allDeals, onCityFilter }) => {
     // Use ref to avoid stale closure — timeout must not fire after map loads
     const timeout = setTimeout(() => {
       if (!cancelled && statusRef.current === "loading") setStatus("error");
-    }, 8000);
+    }, 15000);
     loadGoogleMaps(GOOGLE_MAPS_API_KEY)
       .then((maps) => {
         if (cancelled || !mapRef.current) return;
@@ -2962,7 +2962,7 @@ const MapView = memo(({ onOpenDeal, allDeals, onCityFilter }) => {
               {status === "loading" ? <Sparkles size={20} className="text-indigo-500" style={{ animation: "pulseGlow 1.4s ease-in-out infinite" }} /> : <Globe size={20} className="text-indigo-500" />}
             </div>
             <p className="font-black text-slate-700" style={{ fontSize: 13 }}>{status === "loading" ? "Caricamento Google Maps…" : "Google Maps non disponibile in questo ambiente"}</p>
-            <p className="max-w-md text-slate-400" style={{ fontSize: 11, lineHeight: 1.6 }}>{status === "loading" ? "Caricamento in corso…" : "Portalo nel progetto reale per vedere la mappa con marker cliccabili."}</p>
+            <p className="max-w-md text-slate-400" style={{ fontSize: 11, lineHeight: 1.6 }}>{status === "loading" ? "Caricamento in corso…" : "Impossibile caricare Google Maps. Verifica che la chiave API sia abilitata per Maps JavaScript API e che il dominio elekta-re.web.app sia autorizzato in Google Cloud Console."}</p>
           </div>
         )}
         <div className="absolute right-4 top-4 z-10 flex flex-col items-end gap-1.5">
