@@ -2865,10 +2865,11 @@ function loadGoogleMaps(apiKey) {
   if (window.google?.maps) return Promise.resolve(window.google.maps);
   if (window.__gmapsLoadingPromise) return window.__gmapsLoadingPromise;
   window.__gmapsLoadingPromise = new Promise((resolve, reject) => {
+    // loading=async requires callback param — onload fires before google.maps is ready
+    window.__gmapsInitCb = () => resolve(window.google.maps);
     const script = document.createElement("script");
-    script.src = "https://maps.googleapis.com/maps/api/js?key=" + apiKey + "&v=3&loading=async";
+    script.src = "https://maps.googleapis.com/maps/api/js?key=" + apiKey + "&callback=__gmapsInitCb&loading=async";
     script.async = true;
-    script.onload = () => resolve(window.google.maps);
     script.onerror = () => reject(new Error("Impossibile caricare Google Maps"));
     document.head.appendChild(script);
   });
