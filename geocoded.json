@@ -1,0 +1,87 @@
+﻿[
+    {
+        "addr":  "Via Giovanni Spadolini, 9, 20141 Milano MI",
+        "lat":  "ERR",
+        "lng":  "REQUEST_DENIED"
+    },
+    {
+        "addr":  "Via Giovanni Spadolini, 9, 20141 Milano MI",
+        "lat":  "ERR",
+        "lng":  "REQUEST_DENIED"
+    },
+    {
+        "addr":  "P.za S. Carlo, 1, 10121 Torino TO",
+        "lat":  "ERR",
+        "lng":  "REQUEST_DENIED"
+    },
+    {
+        "addr":  "Viale Paolo Onorato Vigliani, 13, 20148 Milano MI",
+        "lat":  "ERR",
+        "lng":  "REQUEST_DENIED"
+    },
+    {
+        "addr":  "Viale Monte Santo, 10, 20124 Milano MI",
+        "lat":  "ERR",
+        "lng":  "REQUEST_DENIED"
+    },
+    {
+        "addr":  "Via Filippo Corridoni, 2, 16145 Genova GE",
+        "lat":  "ERR",
+        "lng":  "REQUEST_DENIED"
+    },
+    {
+        "addr":  "C.so di Porta Nuova, 10, 20121 Milano MI",
+        "lat":  "ERR",
+        "lng":  "REQUEST_DENIED"
+    },
+    {
+        "addr":  "Via Legnano, 8, 20121 Milano MI",
+        "lat":  "ERR",
+        "lng":  "REQUEST_DENIED"
+    },
+    {
+        "addr":  "Via Francesco Dassori, 10, 16145 Genova GE",
+        "lat":  "ERR",
+        "lng":  "REQUEST_DENIED"
+    },
+    {
+        "addr":  "Via Palmanova, 12, 20132 Milano MI",
+        "lat":  "ERR",
+        "lng":  "REQUEST_DENIED"
+    },
+    {
+        "addr":  "Via Pietro da Cemmo, 4, 20155 Milano MI",
+        "lat":  "ERR",
+        "lng":  "REQUEST_DENIED"
+    },
+    {
+        "addr":  "Via Giovanni Labus, 1, 20147 Milano MI",
+        "lat":  "ERR",
+        "lng":  "REQUEST_DENIED"
+    },
+    {
+        "addr":  "Corso Sicilia, 10, 10133 Torino TO",
+        "lat":  "ERR",
+        "lng":  "REQUEST_DENIED"
+    },
+    {
+        "addr":  "Via S. Francesco da Paola, 44, 10123 Torino TO",
+        "lat":  "ERR",
+        "lng":  "REQUEST_DENIED"
+    },
+    {
+        "addr":  "Via S. Rocco, 9, 10133 Torino TO",
+        "lat":  "ERR",
+        "lng":  "REQUEST_DENIED"
+    },
+    {
+        "addr":  "Via Quintosole, 10, 20141 Milano MI",
+        "lat":  "ERR",
+        "lng":  "REQUEST_DENIED"
+    },
+    {
+        "addr":  "Via Antonio Stoppani, 6, 20129 Milano MI",
+        "lat":  "ERR",
+        "lng":  "REQUEST_DENIED"
+    }
+]
