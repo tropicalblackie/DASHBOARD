@@ -2705,17 +2705,19 @@ const DashboardView = memo(({ onOpenDeal, allDeals, onOpenNewDeal, onNavPortfoli
       {/* Quick-create cards */}
       <div className="grid grid-cols-3 gap-5" style={{ opacity: 0, animation: "riseIn .5s cubic-bezier(.22,1,.36,1) .44s forwards" }}>
         {[
-          { tipo: "Stabili",  Icon: Building2,  color: "#6366f1", glow: "rgba(99,102,241,.18)",  sub: "Immobile residenziale o commerciale" },
-          { tipo: "Terreno",  Icon: TreePine,   color: "#3b82f6", glow: "rgba(59,130,246,.18)",  sub: "Area edificabile o agricola" },
-          { tipo: "Flipping", Icon: RefreshCw,  color: "#10b981", glow: "rgba(16,185,129,.18)",  sub: "Acquisto, ristrutturazione e rivendita" },
-        ].map(({ tipo, Icon, color, glow, sub }) => (
+          { tipo: "Stabili",  color: "#6366f1", glow: "rgba(99,102,241,.18)",  sub: "Immobile residenziale o commerciale" },
+          { tipo: "Terreno",  color: "#3b82f6", glow: "rgba(59,130,246,.18)",  sub: "Area edificabile o agricola" },
+          { tipo: "Flipping", color: "#10b981", glow: "rgba(16,185,129,.18)",  sub: "Acquisto, ristrutturazione e rivendita" },
+        ].map(({ tipo, color, glow, sub }) => (
           <button
             key={tipo}
             onClick={() => onOpenNewDeal?.(tipo)}
             className="group flex items-center gap-4 rounded-2xl border border-white/60 bg-white/55 px-5 py-4 text-left backdrop-blur-xl transition-all duration-200 hover:-translate-y-0.5 hover:border-white/80 hover:bg-white/80"
             style={{ boxShadow: "0 2px 8px rgba(15,23,42,.04), 0 8px 24px -8px " + glow }}
           >
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl" style={{ background: "linear-gradient(135deg," + color + "22," + color + "11)", border: "1.5px solid " + color + "33" }}><Icon size={20} strokeWidth={1.6} style={{ color }} /></div>
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl" style={{ background: "linear-gradient(135deg," + color + "22," + color + "11)", border: "1.5px solid " + color + "33" }}>
+              <span className="font-black" style={{ fontSize: 15, color }}>{tipo[0]}</span>
+            </div>
             <div>
               <p className="font-black tracking-tight text-slate-800" style={{ fontSize: 13 }}>{tipo}</p>
               <p className="mt-0.5 text-slate-400" style={{ fontSize: 10.5 }}>{sub}</p>
