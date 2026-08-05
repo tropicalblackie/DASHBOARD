@@ -2252,7 +2252,7 @@ function loadGoogleMaps(apiKey) {
   if (window.__gmapsLoadingPromise) return window.__gmapsLoadingPromise;
   window.__gmapsLoadingPromise = new Promise((resolve, reject) => {
     const script = document.createElement("script");
-    script.src = "https://maps.googleapis.com/maps/api/js?key=" + apiKey + "&libraries=marker&v=weekly";
+    script.src = "https://maps.googleapis.com/maps/api/js?key=" + apiKey + "&v=3";
     script.async = true;
     script.onload = () => resolve(window.google.maps);
     script.onerror = () => reject(new Error("Impossibile caricare Google Maps"));
@@ -2270,21 +2270,24 @@ const MapView = memo(({ onOpenDeal }) => {
   })).filter((c) => c.deals > 0);
   const mapRef = useRef(null);
   const [status, setStatus] = useState("loading");
+  const statusRef = useRef("loading");
 
   useEffect(() => {
     let cancelled = false;
+    // Use ref to avoid stale closure — timeout must not fire after map loads
     const timeout = setTimeout(() => {
-      if (!cancelled && status === "loading") setStatus("error");
-    }, 4500);
+      if (!cancelled && statusRef.current === "loading") setStatus("error");
+    }, 8000);
     loadGoogleMaps(GOOGLE_MAPS_API_KEY)
       .then((maps) => {
         if (cancelled || !mapRef.current) return;
+        clearTimeout(timeout);
         const map = new maps.Map(mapRef.current, {
           center: { lat: 44.2, lng: 9.8 },
           zoom: 6.4,
-          mapId: "DEMO_MAP_ID",
           disableDefaultUI: true,
           zoomControl: true,
+          // styles require no mapId
           styles: [
             { elementType: "geometry", stylers: [{ color: "#f6f7fb" }] },
             { elementType: "labels.text.fill", stylers: [{ color: "#64748b" }] },
@@ -2310,7 +2313,7 @@ const MapView = memo(({ onOpenDeal }) => {
             if (deal) onOpenDeal?.(deal);
           });
         });
-        cancelled || setStatus("ready");
+        if (!cancelled) { statusRef.current = "ready"; setStatus("ready"); }
       })
       .catch(() => { if (!cancelled) setStatus("error"); });
     return () => { cancelled = true; clearTimeout(timeout); };
