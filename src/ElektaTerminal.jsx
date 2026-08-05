@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef, useCallback, memo } from "react";
+﻿import { useState, useMemo, useEffect, useRef, useCallback, memo } from "react";
 import {
   LayoutDashboard,
   Briefcase,
@@ -39,6 +39,10 @@ import {
   Printer,
   CornerDownLeft,
   Hash,
+  Pencil,
+  Plus,
+  FileUp,
+  LogOut,
 } from "lucide-react";
 import {
   ScatterChart,
@@ -265,7 +269,7 @@ export const riskAxes = ({ r, c, city }) => {
       A: Math.round(Math.min(95, base + (r > 15 ? 20 : r > 5 ? 10 : r < 0 ? -15 : 0))),
     },
     {
-      subject: "Liquidit\u00E0",
+      subject: "Liquidità",
       A: Math.round(Math.max(5, Math.min(95, ((6e6 - c) / 5.9e6) * 100))),
     },
     { subject: "Rendimento", A: Math.round(Math.min(99, Math.max(5, 50 + r * 0.7))) },
@@ -313,9 +317,9 @@ export const aiVerdict = ({ r }) =>
       r.toFixed(1) +
       "%, supera di " +
       (r - 17.8).toFixed(0) +
-      "pp la media. Priorit\u00E0 assoluta in comitato."
+      "pp la media. Priorità assoluta in comitato."
     : r >= 20
-      ? "Opportunit\u00E0 Premium. ROI +" +
+      ? "Opportunità Premium. ROI +" +
         r.toFixed(1) +
         "%, sopra la media (+17.8%). Raccomandato Due Diligence accelerata."
       : r >= 10
@@ -349,20 +353,109 @@ export const CITY_COORDS = {
 /* ══════════════════════════════════════════════════════════════════
    ASYNC DATA LOADING HOOK
    ══════════════════════════════════════════════════════════════════ */
-export function usePortfolioData({ simulatedDelayMs = 900 } = {}) {
-  const [state, setState] = useState({ data: null, loading: true, error: null });
+let _appReady = false;
+export function usePortfolioData() {
+  const [loading, setLoading] = useState(!_appReady);
   useEffect(() => {
-    let cancelled = false;
-    const timer = setTimeout(() => {
-      if (cancelled) return;
-      setState({ data: DATA, loading: false, error: null });
-    }, simulatedDelayMs);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
+    if (_appReady) return;
+    _appReady = true;
+    setLoading(false);
+  }, []);
+  return { data: DATA, loading, error: null };
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   PERSISTENT DEALS HOOK
+   ══════════════════════════════════════════════════════════════════ */
+function usePersistentDeals() {
+  const MANUAL_KEY = "elekta_manual_deals";
+  const OVERRIDES_KEY = "elekta_overrides";
+
+  const [manualDeals, setManualDeals] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(MANUAL_KEY) || "[]"); }
+    catch { return []; }
+  });
+
+  const [overrides, setOverrides] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(OVERRIDES_KEY) || "{}"); }
+    catch { return {}; }
+  });
+
+  const saveManual = useCallback((deals) => {
+    setManualDeals(deals);
+    try { localStorage.setItem(MANUAL_KEY, JSON.stringify(deals)); } catch {}
+  }, []);
+
+  const saveOverrides = useCallback((ov) => {
+    setOverrides(ov);
+    try { localStorage.setItem(OVERRIDES_KEY, JSON.stringify(ov)); } catch {}
+  }, []);
+
+  const addDeal = useCallback((fields) => {
+    const d = {
+      ...fields,
+      c: Number(fields.c) || 0,
+      r: Number(fields.r) || 0,
+      id: "manual-" + Date.now(),
+      source: "manual",
+      city: cityOf(fields.a || ""),
+      status: statusOf(Number(fields.r) || 0),
     };
-  }, [simulatedDelayMs]);
-  return state;
+    saveManual([...manualDeals, d]);
+    return d;
+  }, [manualDeals, saveManual]);
+
+  const deleteDeal = useCallback((id) => {
+    if (manualDeals.find((d) => d.id === id)) {
+      saveManual(manualDeals.filter((d) => d.id !== id));
+    }
+    // hide non-manual deals via override
+    saveOverrides({ ...overrides, [id]: { ...(overrides[id] || {}), hidden: true } });
+  }, [manualDeals, overrides, saveManual, saveOverrides]);
+
+  const updateDeal = useCallback((id, fields) => {
+    saveManual(manualDeals.map((d) =>
+      d.id === id
+        ? { ...d, ...fields, c: Number(fields.c) || d.c, r: Number(fields.r) ?? d.r, city: cityOf(fields.a || d.a), status: statusOf(Number(fields.r) ?? d.r) }
+        : d
+    ));
+  }, [manualDeals, saveManual]);
+
+  const setStatus = useCallback((id, status) => {
+    if (manualDeals.find((d) => d.id === id)) {
+      saveManual(manualDeals.map((d) => d.id === id ? { ...d, status } : d));
+    }
+    saveOverrides({ ...overrides, [id]: { ...(overrides[id] || {}), status } });
+  }, [manualDeals, overrides, saveManual, saveOverrides]);
+
+  const allDeals = useMemo(() =>
+    [...DATA, ...manualDeals]
+      .filter((d) => !overrides[d.id]?.hidden)
+      .map((d) => overrides[d.id] ? { ...d, ...overrides[d.id] } : d),
+    [manualDeals, overrides]
+  );
+
+  return { manualDeals, allDeals, addDeal, deleteDeal, updateDeal, setStatus };
+}
+
+function useCountUp(target, duration = 600) {
+  const [val, setVal] = useState(target);
+  const prev = useRef(target);
+  useEffect(() => {
+    if (prev.current === target) return;
+    const from = prev.current;
+    prev.current = target;
+    const t0 = performance.now();
+    const step = (now) => {
+      const p = Math.min((now - t0) / duration, 1);
+      const ep = 1 - Math.pow(1 - p, 3);
+      setVal(Math.round(from + (target - from) * ep));
+      if (p < 1) requestAnimationFrame(step);
+      else setVal(target);
+    };
+    requestAnimationFrame(step);
+  }, [target, duration]);
+  return val;
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -544,7 +637,7 @@ const ScatterTip = ({ active, payload }) => {
       style={{ maxWidth: 250, boxShadow: "0 8px 32px rgba(15,23,42,.14)" }}
     >
       <p className="font-bold leading-snug text-slate-800" style={{ fontSize: 11 }}>
-        {d.a.length > 48 ? d.a.slice(0, 48) + "\u2026" : d.a}
+        {d.a.length > 48 ? d.a.slice(0, 48) + "…" : d.a}
       </p>
       <div className="mb-2.5 mt-2 flex items-center gap-1.5">
         <TypeChip t={d.t} />
@@ -684,8 +777,335 @@ const Gauge = ({ label, value, pct, hex, delay }) => (
   </div>
 );
 
+/* TOAST */
+const Toast = ({ message, onDismiss }) => {
+  useEffect(() => {
+    const t = setTimeout(onDismiss, 3000);
+    return () => clearTimeout(t);
+  }, [onDismiss]);
+  return (
+    <div
+      className="fixed bottom-6 right-6 z-[200] flex items-center gap-3 rounded-2xl border border-white/70 px-4 py-3 backdrop-blur-[40px] no-print"
+      style={{
+        background: "linear-gradient(135deg,rgba(255,255,255,.96),rgba(238,242,255,.93))",
+        boxShadow: "0 16px 44px -12px rgba(99,102,241,.35), inset 0 1px 0 rgba(255,255,255,.9)",
+        animation: "riseIn .35s cubic-bezier(.22,1,.36,1) forwards",
+      }}
+    >
+      <span className="flex h-7 w-7 items-center justify-center rounded-xl" style={{ background: "linear-gradient(140deg,#6366f1,#7c3aed)" }}>
+        <Check size={13} strokeWidth={2.5} className="text-white" />
+      </span>
+      <span className="font-semibold text-slate-700" style={{ fontSize: 12 }}>{message}</span>
+      <button onClick={onDismiss} className="ml-1 text-slate-400 transition-colors hover:text-slate-600">
+        <X size={13} strokeWidth={1.5} />
+      </button>
+    </div>
+  );
+};
+
+/* NEW / EDIT DEAL DRAWER — slides from LEFT */
+const NewDealDrawer = ({ isOpen, isClosing, onRequestClose, onExited, onSubmit, initialValues = null }) => {
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ a: "", t: "Stabili", c: "", r: "", note: "" });
+  const [errors, setErrors] = useState({});
+
+  useEffect(() => {
+    if (!isOpen || isClosing) return;
+    setForm(initialValues
+      ? { a: initialValues.a || "", t: initialValues.t || "Stabili", c: String(initialValues.c || ""), r: String(initialValues.r || ""), note: initialValues.note || "" }
+      : { a: "", t: "Stabili", c: "", r: "", note: "" }
+    );
+    setErrors({});
+    const id = requestAnimationFrame(() => setOpen(true));
+    return () => cancelAnimationFrame(id);
+  }, [isOpen, isClosing]);
+
+  useEffect(() => { if (isClosing) setOpen(false); }, [isClosing]);
+
+  useEffect(() => {
+    const esc = (e) => e.key === "Escape" && onRequestClose();
+    window.addEventListener("keydown", esc);
+    return () => window.removeEventListener("keydown", esc);
+  }, [onRequestClose]);
+
+  useEffect(() => {
+    if (!isClosing) return;
+    const t = setTimeout(() => onExited(), 650);
+    return () => clearTimeout(t);
+  }, [isClosing, onExited]);
+
+  const validate = () => {
+    const errs = {};
+    if (!form.a.trim()) errs.a = "Indirizzo obbligatorio";
+    const cv = Number(form.c);
+    if (!form.c || isNaN(cv) || cv <= 0) errs.c = "Costo deve essere > 0";
+    const rv = Number(form.r);
+    if (form.r === "" || isNaN(rv)) errs.r = "ROI deve essere un numero";
+    return errs;
+  };
+
+  const handleSubmit = (ev) => {
+    ev.preventDefault();
+    const errs = validate();
+    if (Object.keys(errs).length) { setErrors(errs); return; }
+    onSubmit({ a: form.a.trim(), t: form.t, c: Number(form.c), r: Number(form.r), note: form.note.trim() });
+    onRequestClose();
+  };
+
+  if (!isOpen) return null;
+  const isEdit = !!initialValues;
+
+  return (
+    <>
+      <div
+        onClick={onRequestClose}
+        className="fixed inset-0 z-40 transition-all duration-500 no-print"
+        style={{
+          background: open ? "rgba(15,23,42,.28)" : "rgba(15,23,42,0)",
+          backdropFilter: open ? "blur(6px) saturate(55%)" : "blur(0px)",
+          pointerEvents: open ? "auto" : "none",
+        }}
+      />
+      <aside
+        className="fixed bottom-0 left-0 top-0 z-50 flex flex-col overflow-hidden border-r border-white/60 backdrop-blur-[40px] no-print"
+        style={{
+          width: 400,
+          maxWidth: "94vw",
+          background: "linear-gradient(175deg,rgba(255,255,255,.95),rgba(248,250,252,.92))",
+          transform: open ? "translateX(0)" : "translateX(-100%)",
+          transition: "transform .58s cubic-bezier(.22,1.02,.36,1)",
+          boxShadow: "24px 0 80px -20px rgba(15,23,42,.28), 2px 0 12px rgba(15,23,42,.06)",
+        }}
+      >
+        <div className="pointer-events-none absolute -left-16 -top-24 h-72 w-72 rounded-full" style={{ background: "radial-gradient(circle,rgba(99,102,241,.14),transparent 66%)" }} />
+        <div className="relative shrink-0 border-b border-slate-200/50 px-6 pb-4 pt-6">
+          <div className="flex items-start justify-between">
+            <div className="flex items-center gap-2">
+              <span className="h-3.5 w-1 rounded-full" style={{ background: "linear-gradient(180deg,#6366f1,#8b5cf6)" }} />
+              <Eyebrow>Portfolio Manager</Eyebrow>
+            </div>
+            <button onClick={onRequestClose} className="flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200/70 bg-white/60 text-slate-500 transition-all duration-200 hover:rotate-90 hover:bg-slate-100">
+              <X size={15} strokeWidth={1.5} />
+            </button>
+          </div>
+          <h2 className="mt-3 font-black text-slate-800" style={{ fontSize: 16, letterSpacing: "-.035em" }}>
+            {isEdit ? "Modifica Pratica" : "Nuova Pratica"}
+          </h2>
+        </div>
+        <form onSubmit={handleSubmit} className="scrollzone flex-1 overflow-y-auto px-6 py-5">
+          <div className="space-y-4">
+            <div>
+              <label className="mb-1.5 block font-bold uppercase tracking-[.18em] text-slate-400" style={{ fontSize: 9 }}>Indirizzo *</label>
+              <input
+                value={form.a}
+                onChange={(e) => setForm((f) => ({ ...f, a: e.target.value }))}
+                placeholder="Via Roma, 1, 20121 Milano MI"
+                className="w-full rounded-xl border px-3.5 py-2.5 text-slate-700 outline-none transition-all"
+                style={{ fontSize: 12, borderColor: errors.a ? "#f43f5e" : "rgba(226,232,240,.8)", background: "rgba(255,255,255,.7)", boxShadow: errors.a ? "0 0 0 2px rgba(244,63,94,.15)" : "none" }}
+              />
+              {errors.a && <p className="mt-1 font-semibold text-rose-500" style={{ fontSize: 10 }}>{errors.a}</p>}
+            </div>
+            <div>
+              <label className="mb-1.5 block font-bold uppercase tracking-[.18em] text-slate-400" style={{ fontSize: 9 }}>Tipo Asset</label>
+              <select
+                value={form.t}
+                onChange={(e) => setForm((f) => ({ ...f, t: e.target.value }))}
+                className="w-full rounded-xl border border-slate-200/80 bg-white/70 px-3.5 py-2.5 text-slate-700 outline-none"
+                style={{ fontSize: 12 }}
+              >
+                <option>Stabili</option>
+                <option>Terreno</option>
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1.5 block font-bold uppercase tracking-[.18em] text-slate-400" style={{ fontSize: 9 }}>Costo (€) *</label>
+                <input
+                  type="number"
+                  value={form.c}
+                  onChange={(e) => setForm((f) => ({ ...f, c: e.target.value }))}
+                  placeholder="500000"
+                  min="1"
+                  className="w-full rounded-xl border px-3.5 py-2.5 text-slate-700 outline-none transition-all"
+                  style={{ fontSize: 12, borderColor: errors.c ? "#f43f5e" : "rgba(226,232,240,.8)", background: "rgba(255,255,255,.7)", boxShadow: errors.c ? "0 0 0 2px rgba(244,63,94,.15)" : "none" }}
+                />
+                {errors.c && <p className="mt-1 font-semibold text-rose-500" style={{ fontSize: 10 }}>{errors.c}</p>}
+              </div>
+              <div>
+                <label className="mb-1.5 block font-bold uppercase tracking-[.18em] text-slate-400" style={{ fontSize: 9 }}>ROI (%) *</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={form.r}
+                  onChange={(e) => setForm((f) => ({ ...f, r: e.target.value }))}
+                  placeholder="15.5"
+                  className="w-full rounded-xl border px-3.5 py-2.5 text-slate-700 outline-none transition-all"
+                  style={{ fontSize: 12, borderColor: errors.r ? "#f43f5e" : "rgba(226,232,240,.8)", background: "rgba(255,255,255,.7)", boxShadow: errors.r ? "0 0 0 2px rgba(244,63,94,.15)" : "none" }}
+                />
+                {errors.r && <p className="mt-1 font-semibold text-rose-500" style={{ fontSize: 10 }}>{errors.r}</p>}
+              </div>
+            </div>
+            <div>
+              <label className="mb-1.5 block font-bold uppercase tracking-[.18em] text-slate-400" style={{ fontSize: 9 }}>Note (opzionale)</label>
+              <textarea
+                value={form.note}
+                onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))}
+                placeholder="Osservazioni, contatti, riferimenti…"
+                rows={3}
+                className="w-full resize-none rounded-xl border border-slate-200/80 bg-white/70 px-3.5 py-2.5 text-slate-700 outline-none"
+                style={{ fontSize: 12 }}
+              />
+            </div>
+          </div>
+          <div className="mt-6 grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={onRequestClose}
+              className="rounded-2xl border border-slate-200/80 bg-white/65 py-3 font-bold text-slate-600 transition-all hover:-translate-y-0.5 hover:bg-slate-50"
+              style={{ fontSize: 11.5 }}
+            >
+              Annulla
+            </button>
+            <button
+              type="submit"
+              className="flex items-center justify-center gap-2 rounded-2xl py-3 font-bold text-white transition-transform hover:-translate-y-0.5 active:translate-y-0"
+              style={{ fontSize: 11.5, background: "linear-gradient(140deg,#6366f1,#7c3aed)", boxShadow: "0 8px 22px -8px rgba(99,102,241,.75), inset 0 1px 0 rgba(255,255,255,.22)" }}
+            >
+              {isEdit ? <Pencil size={14} strokeWidth={2} /> : <Plus size={14} strokeWidth={2} />}
+              {isEdit ? "Salva Modifiche" : "Aggiungi Pratica"}
+            </button>
+          </div>
+          {isEdit && !initialValues && (
+            <p className="mt-8 text-center font-semibold text-slate-400" style={{ fontSize: 10 }}>Nessuna pratica aggiunta manualmente</p>
+          )}
+        </form>
+      </aside>
+    </>
+  );
+};
+
+/* NOTIFICATION BELL — last 3 manually added deals */
+const NotificationBell = ({ manualDeals }) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", handler, true);
+    return () => document.removeEventListener("mousedown", handler, true);
+  }, [open]);
+  const recent = [...manualDeals].reverse().slice(0, 3);
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="relative flex h-10 w-10 items-center justify-center rounded-2xl text-slate-400 transition-all duration-200 hover:bg-slate-100/80 hover:text-slate-600"
+      >
+        <Bell size={16} strokeWidth={1.5} />
+        {recent.length > 0 && (
+          <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-indigo-500" style={{ boxShadow: "0 0 6px #6366f1" }} />
+        )}
+      </button>
+      {open && (
+        <div
+          className="absolute bottom-12 left-1/2 z-[300] w-64 -translate-x-1/2 overflow-hidden rounded-2xl border border-white/70 backdrop-blur-[40px]"
+          style={{ background: "rgba(255,255,255,.96)", boxShadow: "0 16px 44px -12px rgba(15,23,42,.3), inset 0 1px 0 rgba(255,255,255,.9)" }}
+        >
+          <div className="border-b border-slate-200/50 px-4 py-2.5">
+            <p className="font-bold uppercase tracking-[.18em] text-slate-400" style={{ fontSize: 9 }}>Pratiche aggiunte</p>
+          </div>
+          {recent.length === 0 ? (
+            <div className="px-4 py-5 text-center">
+              <p className="font-semibold text-slate-400" style={{ fontSize: 11 }}>Nessuna pratica aggiunta manualmente</p>
+            </div>
+          ) : (
+            <div className="py-1">
+              {recent.map((d) => (
+                <div key={d.id} className="px-4 py-2.5">
+                  <p className="truncate font-semibold text-slate-700" style={{ fontSize: 11 }} title={d.a}>{d.a.split(",")[0]}</p>
+                  <p className="font-medium text-slate-400" style={{ fontSize: 9.5 }}>{d.city} · {eur(d.c)} · {d.r > 0 ? "+" : ""}{d.r.toFixed(1)}%</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+/* USER MENU — avatar with profile popover */
+const UserMenu = ({ profile, onSaveProfile, onLogout }) => {
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(profile);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) { setOpen(false); setEditing(false); } };
+    document.addEventListener("mousedown", handler, true);
+    return () => document.removeEventListener("mousedown", handler, true);
+  }, [open]);
+  useEffect(() => { setDraft(profile); }, [profile]);
+  const initials = profile.name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+  const handleSave = () => { onSaveProfile(draft); setEditing(false); };
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full transition-all duration-200 hover:opacity-80"
+        style={{ background: "linear-gradient(140deg,#a78bfa,#6366f1)", boxShadow: "0 4px 14px -3px rgba(99,102,241,.55),inset 0 1px 0 rgba(255,255,255,.3)" }}
+      >
+        <span className="font-black text-white" style={{ fontSize: 10.5, letterSpacing: "-.02em" }}>{initials}</span>
+      </button>
+      {open && (
+        <div
+          className="absolute bottom-12 left-1/2 z-[300] w-56 -translate-x-1/2 overflow-hidden rounded-2xl border border-white/70 backdrop-blur-[40px]"
+          style={{ background: "rgba(255,255,255,.96)", boxShadow: "0 16px 44px -12px rgba(15,23,42,.3), inset 0 1px 0 rgba(255,255,255,.9)" }}
+        >
+          <div className="border-b border-slate-200/50 px-4 py-3">
+            {editing ? (
+              <div className="space-y-1.5">
+                <input
+                  value={draft.name}
+                  onChange={(e) => setDraft((p) => ({ ...p, name: e.target.value }))}
+                  onKeyDown={(e) => e.key === "Enter" && handleSave()}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 font-bold text-slate-800 outline-none"
+                  style={{ fontSize: 12 }}
+                  autoFocus
+                />
+                <input
+                  value={draft.role}
+                  onChange={(e) => setDraft((p) => ({ ...p, role: e.target.value }))}
+                  onKeyDown={(e) => e.key === "Enter" && handleSave()}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-slate-500 outline-none"
+                  style={{ fontSize: 11 }}
+                />
+                <button onClick={handleSave} className="w-full rounded-lg bg-indigo-500/10 py-1 font-bold text-indigo-600 transition-colors hover:bg-indigo-500/20" style={{ fontSize: 10.5 }}>Salva</button>
+              </div>
+            ) : (
+              <div className="cursor-default" onClick={() => setEditing(true)} title="Clicca per modificare">
+                <p className="font-black text-slate-800" style={{ fontSize: 12 }}>{profile.name}</p>
+                <p className="text-slate-400" style={{ fontSize: 10 }}>{profile.role} · Elekta RE</p>
+              </div>
+            )}
+          </div>
+          <button
+            onClick={onLogout}
+            className="flex w-full items-center gap-2.5 px-4 py-2.5 font-semibold text-rose-600 transition-colors hover:bg-rose-500/[.06]"
+            style={{ fontSize: 11 }}
+          >
+            <LogOut size={13} strokeWidth={1.5} />
+            Esci e reimposta
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 /* DRAWER */
-const DealDrawer = ({ deal, isClosing, onRequestClose, onExited }) => {
+const DealDrawer = ({ deal, isClosing, onRequestClose, onExited, onEdit, onApprove }) => {
   const [open, setOpen] = useState(false);
   const asideRef = useRef(null);
   useEffect(() => {
@@ -1046,16 +1466,27 @@ const DealDrawer = ({ deal, isClosing, onRequestClose, onExited }) => {
             </div>
           </div>
           <div
-            className="mx-6 mt-6 grid grid-cols-2 gap-2.5"
-            style={{ opacity: 0, animation: "riseIn .6s cubic-bezier(.22,1,.36,1) .5s forwards" }}
+            className="mx-6 mt-6 grid gap-2.5"
+            style={{ gridTemplateColumns: deal.source === "manual" ? "1fr 1fr 1fr" : "1fr 1fr", opacity: 0, animation: "riseIn .6s cubic-bezier(.22,1,.36,1) .5s forwards" }}
           >
             <button
+              onClick={() => onApprove?.(deal)}
               className="flex items-center justify-center gap-2 rounded-2xl py-3 font-bold text-white transition-transform duration-200 hover:-translate-y-0.5 active:translate-y-0"
               style={{ fontSize: 11.5, background: "linear-gradient(140deg,#6366f1,#7c3aed)", boxShadow: "0 8px 22px -8px rgba(99,102,241,.75), inset 0 1px 0 rgba(255,255,255,.22)" }}
             >
               <Check size={14} strokeWidth={1.5} />
               Approva Deal
             </button>
+            {deal.source === "manual" && (
+              <button
+                onClick={() => onEdit?.(deal)}
+                className="flex items-center justify-center gap-2 rounded-2xl border border-indigo-300/60 bg-indigo-50/60 py-3 font-bold text-indigo-600 transition-all duration-200 hover:-translate-y-0.5 hover:bg-indigo-100/70 active:translate-y-0"
+                style={{ fontSize: 11.5 }}
+              >
+                <Pencil size={14} strokeWidth={1.5} />
+                Modifica
+              </button>
+            )}
             <button
               onClick={handlePrint}
               className="flex items-center justify-center gap-2 rounded-2xl border border-slate-200/80 bg-white/65 py-3 font-bold text-slate-600 transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-50 active:translate-y-0"
@@ -1088,8 +1519,9 @@ function printDeals(deals) {
       <div style="page-break-inside:avoid;border:1px solid #e2e8f0;border-radius:14px;padding:20px;margin-bottom:16px">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
           <div>
-            <div style="font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:#94a3b8;font-weight:700">${d.status} \u00B7 ${d.t}</div>
+            <div style="font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:#94a3b8;font-weight:700">${d.status} · ${d.t}</div>
             <div style="font-size:16px;font-weight:800;color:#1e293b;margin-top:4px">${d.a}</div>
+            ${d.source === "manual" ? '<div style="font-size:8.5px;color:#d97706;font-weight:700;margin-top:3px;letter-spacing:.08em;text-transform:uppercase">◆ Aggiunto manualmente</div>' : ""}
             <div style="font-size:10px;color:#64748b;margin-top:2px">${d.city}</div>
           </div>
           <div style="text-align:right">
@@ -1126,13 +1558,13 @@ function printDeals(deals) {
     <div style="font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display',Inter,sans-serif;padding:32px;color:#1e293b">
       <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #1e293b;padding-bottom:14px;margin-bottom:24px">
         <div>
-          <div style="font-size:19px;font-weight:900;letter-spacing:-.02em">Elekta \u2014 Investment Terminal</div>
-          <div style="font-size:10.5px;color:#64748b;margin-top:2px">${isComparison ? "Report di Comparazione Deal" : "Deal Intelligence Report"} \u00B7 Generato il ${new Date().toLocaleDateString("it-IT", { day: "2-digit", month: "long", year: "numeric" })}</div>
+          <div style="font-size:19px;font-weight:900;letter-spacing:-.02em">Elekta — Investment Terminal</div>
+          <div style="font-size:10.5px;color:#64748b;margin-top:2px">${isComparison ? "Report di Comparazione Deal" : "Deal Intelligence Report"} · Generato il ${new Date().toLocaleDateString("it-IT", { day: "2-digit", month: "long", year: "numeric" })}</div>
         </div>
         <div style="width:34px;height:34px;border-radius:10px;background:#1e293b;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:14px">E</div>
       </div>
       ${rowsHtml}
-      <div style="margin-top:20px;font-size:8.5px;color:#94a3b8;text-align:center">Documento generato automaticamente da Elekta Investment Terminal \u2014 uso interno riservato</div>
+      <div style="margin-top:20px;font-size:8.5px;color:#94a3b8;text-align:center">Documento generato automaticamente da Elekta Investment Terminal — uso interno riservato</div>
     </div>`;
 
   requestAnimationFrame(() => window.print());
@@ -1167,7 +1599,7 @@ const CompareDrawer = ({ deals, isClosing, onRequestClose, onExited, onRemove })
 
   if (!deals?.length) return null;
 
-  const axesLabels = ["Location", "Liquidit\u00E0", "Rendimento", "Cantiere", "Mercato"];
+  const axesLabels = ["Location", "Liquidità", "Rendimento", "Cantiere", "Mercato"];
   const overlaidRadar = axesLabels.map((subject) => {
     const row = { subject };
     deals.forEach((d, i) => {
@@ -1279,7 +1711,7 @@ const CompareDrawer = ({ deals, isClosing, onRequestClose, onExited, onRemove })
                   style={{ fontSize: 12.5, letterSpacing: "-.02em" }}
                   title={d.a}
                 >
-                  {d.a.length > 42 ? d.a.slice(0, 42) + "\u2026" : d.a}
+                  {d.a.length > 42 ? d.a.slice(0, 42) + "…" : d.a}
                 </p>
                 <div className="mt-2 flex items-center gap-1.5">
                   <TypeChip t={d.t} />
@@ -1306,7 +1738,7 @@ const CompareDrawer = ({ deals, isClosing, onRequestClose, onExited, onRemove })
           <div className="mt-6">
             <div className="mb-3 flex items-center gap-1.5">
               <Layers size={11} strokeWidth={1.5} className="text-slate-400" />
-              <Eyebrow>Financial Breakdown \u2014 Confronto</Eyebrow>
+              <Eyebrow>Financial Breakdown — Confronto</Eyebrow>
             </div>
             <div
               className="overflow-hidden rounded-2xl border border-slate-200/60"
@@ -1373,7 +1805,7 @@ const CompareDrawer = ({ deals, isClosing, onRequestClose, onExited, onRemove })
             <div className="mb-3 flex items-center justify-between">
               <div className="flex items-center gap-1.5">
                 <Zap size={11} strokeWidth={1.5} className="text-slate-400" />
-                <Eyebrow>Risk / Return \u2014 Radar Sovrapposto</Eyebrow>
+                <Eyebrow>Risk / Return — Radar Sovrapposto</Eyebrow>
               </div>
               <div className="flex items-center gap-3">
                 {metrics.map((d, i) => (
@@ -1383,7 +1815,7 @@ const CompareDrawer = ({ deals, isClosing, onRequestClose, onExited, onRemove })
                       style={{ background: COMPARE_COLORS[i % COMPARE_COLORS.length] }}
                     />
                     <span className="font-semibold text-slate-500">
-                      {d.a.split(",")[0].length > 16 ? d.a.split(",")[0].slice(0, 16) + "\u2026" : d.a.split(",")[0]}
+                      {d.a.split(",")[0].length > 16 ? d.a.split(",")[0].slice(0, 16) + "…" : d.a.split(",")[0]}
                     </span>
                   </span>
                 ))}
@@ -1491,54 +1923,58 @@ const CompareDrawer = ({ deals, isClosing, onRequestClose, onExited, onRemove })
 /* ══════════════════════════════════════════════════════════════════
    COMMAND PALETTE
    ══════════════════════════════════════════════════════════════════ */
-function buildCommands({ setNav, openDeal, applyQuickFilter }) {
+function buildCommands({ setNav, openDeal, applyQuickFilter, allDeals, openNewDeal }) {
   const navCommands = [
     { id: "nav-dashboard", group: "Naviga", icon: LayoutDashboard, label: "Vai a Dashboard", action: () => setNav("dashboard"), keywords: "home overview panoramica" },
     { id: "nav-portfolio", group: "Naviga", icon: Briefcase, label: "Vai a Portafoglio", action: () => setNav("portfolio"), keywords: "deal screener pratiche lista" },
-    { id: "nav-map", group: "Naviga", icon: Map, label: "Vai a Mappa Asset", action: () => setNav("map"), keywords: "geografia citt\u00E0 google maps" },
+    { id: "nav-map", group: "Naviga", icon: Map, label: "Vai a Mappa Asset", action: () => setNav("map"), keywords: "geografia città google maps" },
     { id: "nav-report", group: "Naviga", icon: FileText, label: "Vai a Report", action: () => setNav("report"), keywords: "documenti pdf" },
     { id: "nav-settings", group: "Naviga", icon: Settings, label: "Vai a Impostazioni", action: () => setNav("settings"), keywords: "profilo account" },
+  ];
+  const actionCommands = [
+    { id: "action-new-deal", group: "Azioni", icon: Plus, label: "Aggiungi nuova pratica", action: openNewDeal, keywords: "nuovo pratica aggiunge manuale form inserisci" },
+    { id: "action-export-pdf", group: "Azioni", icon: Download, label: "Esporta report top 10 deal", action: () => printDeals([...allDeals].sort((a, b) => b.r - a.r).slice(0, 10)), keywords: "esporta pdf report stampa top" },
   ];
   const filterCommands = [
     { id: "filter-target", group: "Filtri Rapidi", icon: Target, label: "Filtra: ROI superiore al 10%", action: () => applyQuickFilter("target"), keywords: "target soglia deal in target" },
     { id: "filter-20", group: "Filtri Rapidi", icon: TrendingUp, label: "Filtra: ROI superiore al 20%", action: () => applyQuickFilter("target20"), keywords: "premium alto rendimento" },
     { id: "filter-pos", group: "Filtri Rapidi", icon: ArrowUpRight, label: "Filtra: solo ROI positivi", action: () => applyQuickFilter("pos"), keywords: "positivi guadagno" },
     { id: "filter-neg", group: "Filtri Rapidi", icon: ArrowDownRight, label: "Filtra: solo ROI negativi", action: () => applyQuickFilter("neg"), keywords: "negativi perdita scartati" },
-    { id: "filter-milano", group: "Filtri Rapidi", icon: Building2, label: "Filtra: solo Milano", action: () => applyQuickFilter("milano"), keywords: "citt\u00E0 milano mi" },
-    { id: "filter-torino", group: "Filtri Rapidi", icon: Building2, label: "Filtra: solo Torino", action: () => applyQuickFilter("torino"), keywords: "citt\u00E0 torino to" },
-    { id: "filter-genova", group: "Filtri Rapidi", icon: Building2, label: "Filtra: solo Genova", action: () => applyQuickFilter("genova"), keywords: "citt\u00E0 genova ge" },
+    { id: "filter-milano", group: "Filtri Rapidi", icon: Building2, label: "Filtra: solo Milano", action: () => applyQuickFilter("milano"), keywords: "città milano mi" },
+    { id: "filter-torino", group: "Filtri Rapidi", icon: Building2, label: "Filtra: solo Torino", action: () => applyQuickFilter("torino"), keywords: "città torino to" },
+    { id: "filter-genova", group: "Filtri Rapidi", icon: Building2, label: "Filtra: solo Genova", action: () => applyQuickFilter("genova"), keywords: "città genova ge" },
     { id: "filter-terreno", group: "Filtri Rapidi", icon: TreePine, label: "Filtra: solo Terreni", action: () => applyQuickFilter("terreno"), keywords: "asset class terreno" },
   ];
-  const dealCommands = DATA.map((d) => ({
+  const dealCommands = allDeals.map((d) => ({
     id: "deal-" + d.id,
     group: "Pratiche",
     icon: d.r >= 20 ? Target : d.r >= 0 ? Building2 : AlertTriangle,
     label: d.a,
-    sublabel: `${d.city} \u00B7 ${eur(d.c)} \u00B7 ${d.r > 0 ? "+" : ""}${d.r.toFixed(1)}% ROI`,
+    sublabel: `${d.city} · ${eur(d.c)} · ${d.r > 0 ? "+" : ""}${d.r.toFixed(1)}% ROI`,
     action: () => openDeal(d),
     keywords: d.a + " " + d.city + " " + d.t,
     roi: d.r,
   }));
-  return { navCommands, filterCommands, dealCommands };
+  return { navCommands, actionCommands, filterCommands, dealCommands };
 }
 
-const CommandPalette = ({ isOpen, onClose, setNav, openDeal, applyQuickFilter }) => {
+const CommandPalette = ({ isOpen, onClose, setNav, openDeal, applyQuickFilter, allDeals, openNewDeal }) => {
   const [query, setQuery] = useState("");
   const [activeIdx, setActiveIdx] = useState(0);
   const inputRef = useRef(null);
 
-  const { navCommands, filterCommands, dealCommands } = useMemo(
-    () => buildCommands({ setNav, openDeal, applyQuickFilter }),
-    [setNav, openDeal, applyQuickFilter]
+  const { navCommands, actionCommands, filterCommands, dealCommands } = useMemo(
+    () => buildCommands({ setNav, openDeal, applyQuickFilter, allDeals, openNewDeal }),
+    [setNav, openDeal, applyQuickFilter, allDeals, openNewDeal]
   );
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) {
       const topDeals = [...dealCommands].sort((a, b) => b.roi - a.roi).slice(0, 5);
-      return [...navCommands, ...filterCommands.slice(0, 3), ...topDeals];
+      return [...navCommands, ...actionCommands, ...filterCommands.slice(0, 3), ...topDeals];
     }
-    const all = [...navCommands, ...filterCommands, ...dealCommands];
+    const all = [...navCommands, ...actionCommands, ...filterCommands, ...dealCommands];
     return all
       .filter((c) => (c.label + " " + (c.keywords || "")).toLowerCase().includes(q))
       .slice(0, 40);
@@ -1617,7 +2053,7 @@ const CommandPalette = ({ isOpen, onClose, setNav, openDeal, applyQuickFilter })
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Cerca una pratica, vai a una sezione, applica un filtro\u2026"
+            placeholder="Cerca una pratica, vai a una sezione, applica un filtro…"
             className="flex-1 bg-transparent text-slate-800 outline-none placeholder-slate-400"
             style={{ fontSize: 13.5, fontWeight: 500 }}
           />
@@ -1712,7 +2148,7 @@ const CommandPalette = ({ isOpen, onClose, setNav, openDeal, applyQuickFilter })
 };
 
 /* ROW MENU */
-const RowMenu = ({ row, isOpen, onToggle, onCloseMenu, onOpenDeal, isRowHovered }) => {
+const RowMenu = ({ row, isOpen, onToggle, onCloseMenu, onOpenDeal, isRowHovered, isManual, onEdit, onDelete, onApprove, onSuspend }) => {
   const ref = useRef(null);
   useEffect(() => {
     if (!isOpen) return;
@@ -1756,9 +2192,10 @@ const RowMenu = ({ row, isOpen, onToggle, onCloseMenu, onOpenDeal, isRowHovered 
         >
           {[
             [Eye, "Deal Intelligence", () => onOpenDeal(row), false],
-            [Check, "Approva", null, false],
-            [Clock, "Sospendi", null, false],
-            [Trash2, "Elimina", null, true],
+            ...(isManual ? [[Pencil, "Modifica", () => onEdit?.(), false]] : []),
+            [Check, "Approva", () => onApprove?.(row), false],
+            [Clock, "Sospendi", () => onSuspend?.(row), false],
+            [Trash2, "Elimina", () => onDelete?.(), true],
           ].map(([I, l, act, danger]) => (
             <button
               key={l}
@@ -1811,19 +2248,33 @@ const ViewTransition = ({ viewKey, children }) => {
 };
 
 /* ══════ DASHBOARD VIEW ══════ */
-const DashboardView = memo(({ onOpenDeal }) => {
+const DashboardView = memo(({ onOpenDeal, allDeals }) => {
   const [pieHover, setPieHover] = useState(null);
-  const hi = useMemo(() => DATA.filter((d) => d.r > 10), []);
-  const mid = useMemo(() => DATA.filter((d) => d.r > 0 && d.r <= 10), []);
-  const lo = useMemo(() => DATA.filter((d) => d.r <= 0), []);
+  const hi = useMemo(() => allDeals.filter((d) => d.r > 10), [allDeals]);
+  const mid = useMemo(() => allDeals.filter((d) => d.r > 0 && d.r <= 10), [allDeals]);
+  const lo = useMemo(() => allDeals.filter((d) => d.r <= 0), [allDeals]);
+
+  const totalCap = useMemo(() => allDeals.reduce((s, d) => s + d.c, 0), [allDeals]);
+  const posDeals = useMemo(() => allDeals.filter((d) => d.r > 0), [allDeals]);
+  const avgRoi = posDeals.length ? posDeals.reduce((s, d) => s + d.r, 0) / posDeals.length : 0;
+  const targetCount = useMemo(() => allDeals.filter((d) => d.r > 10).length, [allDeals]);
+  const totalCount = allDeals.length;
+
+  const animatedTotal = useCountUp(totalCount);
+  const animatedTarget = useCountUp(targetCount);
+
+  const allocDynamic = useMemo(() => [
+    { name: "Stabili", value: allDeals.filter((d) => d.t === "Stabili").length, color: "#6366f1", glow: "#818cf8" },
+    { name: "Terreno", value: allDeals.filter((d) => d.t === "Terreno").length, color: "#3b82f6", glow: "#60a5fa" },
+  ], [allDeals]);
   return (
     <div className="space-y-6 px-8 py-8">
       <div className="grid grid-cols-4 gap-5">
         <Kpi
           index={0}
           label="Capitale Analizzato"
-          value={"\u20AC565,6M"}
-          detail="565.572.514 \u20AC AUM"
+          value={eur(totalCap)}
+          detail={"\u20AC" + Math.round(totalCap).toLocaleString("it-IT") + " AUM"}
           delta="+8.4% vs Q2"
           color="#6366f1"
           spark={SPARK.cap}
@@ -1832,8 +2283,8 @@ const DashboardView = memo(({ onOpenDeal }) => {
         <Kpi
           index={1}
           label="ROI Medio Positivo"
-          value="+17.8%"
-          detail="124 asset in gain"
+          value={(avgRoi > 0 ? "+" : "") + avgRoi.toFixed(1) + "%"}
+          detail={posDeals.length + " asset in gain"}
           delta="+2.1% vs Q2"
           color="#3b82f6"
           spark={SPARK.roi}
@@ -1842,7 +2293,7 @@ const DashboardView = memo(({ onOpenDeal }) => {
         <Kpi
           index={2}
           label="Deal in Target"
-          value="74"
+          value={animatedTarget.toString()}
           detail="ROI oltre soglia 10%"
           delta="+12 vs Q2"
           color="#8b5cf6"
@@ -1852,8 +2303,8 @@ const DashboardView = memo(({ onOpenDeal }) => {
         <Kpi
           index={3}
           label="Pratiche Totali"
-          value="836"
-          detail="GE \u00B7 MI \u00B7 TO \u00B7 RM"
+          value={animatedTotal.toString()}
+          detail="GE · MI · TO · RM"
           delta="+36 vs Q2"
           color="#334155"
           spark={SPARK.count}
@@ -1868,13 +2319,13 @@ const DashboardView = memo(({ onOpenDeal }) => {
                 Opportunity Matrix
               </h3>
               <p className="mt-1 text-slate-400" style={{ fontSize: 10 }}>
-                Costo \u00D7 ROI \u2014 segmentazione a quattro quadranti
+                Costo × ROI — segmentazione a quattro quadranti
               </p>
             </div>
             <div className="flex gap-3">
               {[
                 ["#60a5fa", "> 10%"],
-                ["#a5b4fc", "0\u201310%"],
+                ["#a5b4fc", "0–10%"],
                 ["#f9a8d4", "Negativo"],
               ].map(([c, l]) => (
                 <span
@@ -1956,8 +2407,8 @@ const DashboardView = memo(({ onOpenDeal }) => {
           </div>
           <div className="grid grid-cols-3 border-t border-slate-200/40">
             {[
-              ["Sweet Spot", "Basso costo \u00B7 Alto ROI", "#2563eb"],
-              ["High Value", "Alto costo \u00B7 Alto ROI", "#7c3aed"],
+              ["Sweet Spot", "Basso costo · Alto ROI", "#2563eb"],
+              ["High Value", "Alto costo · Alto ROI", "#7c3aed"],
               ["Da Scartare", "Rendimento negativo", "#db2777"],
             ].map(([k, v, c], i) => (
               <div
@@ -2042,31 +2493,31 @@ const DashboardView = memo(({ onOpenDeal }) => {
                       </linearGradient>
                     ))}
                   </defs>
-                  <Pie data={ALLOC} cx="50%" cy="50%" innerRadius={60} outerRadius={83} paddingAngle={4} dataKey="value" strokeWidth={0} isAnimationActive={false} onMouseEnter={(_, i) => setPieHover(i)} onMouseLeave={() => setPieHover(null)}>
-                    {ALLOC.map((a, i) => (
+                  <Pie data={allocDynamic} cx="50%" cy="50%" innerRadius={60} outerRadius={83} paddingAngle={4} dataKey="value" strokeWidth={0} isAnimationActive={false} onMouseEnter={(_, i) => setPieHover(i)} onMouseLeave={() => setPieHover(null)}>
+                    {allocDynamic.map((a, i) => (
                       <Cell key={i} fill={"url(#pieG" + i + ")"} style={{ filter: pieHover === i ? "url(#pieGlow" + i + ")" : "none", opacity: pieHover === null || pieHover === i ? 1 : 0.34, transition: "opacity .35s ease" }} />
                     ))}
                   </Pie>
                 </PieChart>
               </ResponsiveContainer>
               <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                <span className="font-black tabular-nums text-slate-800" style={{ fontSize: 30, letterSpacing: "-.05em", lineHeight: 1 }}>{pieHover === null ? 836 : ALLOC[pieHover].value}</span>
-                <span className="mt-1 font-bold uppercase tracking-[.22em] text-slate-400" style={{ fontSize: 8.5 }}>{pieHover === null ? "pratiche" : ALLOC[pieHover].name}</span>
+                <span className="font-black tabular-nums text-slate-800" style={{ fontSize: 30, letterSpacing: "-.05em", lineHeight: 1 }}>{pieHover === null ? totalCount : allocDynamic[pieHover].value}</span>
+                <span className="mt-1 font-bold uppercase tracking-[.22em] text-slate-400" style={{ fontSize: 8.5 }}>{pieHover === null ? "pratiche" : allocDynamic[pieHover].name}</span>
               </div>
             </div>
             <div className="mt-5 w-full space-y-2.5">
-              {ALLOC.map((it, i) => (
+              {allocDynamic.map((it, i) => (
                 <div key={it.name} onMouseEnter={() => setPieHover(i)} onMouseLeave={() => setPieHover(null)} className="flex cursor-pointer items-center gap-2.5 rounded-xl px-2 py-1.5 transition-colors duration-300" style={{ background: pieHover === i ? "rgba(99,102,241,.06)" : "transparent" }}>
                   <span className="h-2.5 w-2.5 shrink-0 rounded-md transition-shadow duration-300" style={{ background: "linear-gradient(135deg," + it.glow + "," + it.color + ")", boxShadow: pieHover === i ? "0 0 10px " + it.glow : "none" }} />
                   <span className="flex-1 font-semibold text-slate-600" style={{ fontSize: 11 }}>{it.name}</span>
                   <span className="font-black tabular-nums text-slate-800" style={{ fontSize: 12, letterSpacing: "-.02em" }}>{it.value}</span>
-                  <span className="text-right font-bold tabular-nums text-slate-400" style={{ fontSize: 9.5, width: 38 }}>{((it.value / 836) * 100).toFixed(1)}%</span>
+                  <span className="text-right font-bold tabular-nums text-slate-400" style={{ fontSize: 9.5, width: 38 }}>{totalCount ? ((it.value / totalCount) * 100).toFixed(1) : "0.0"}%</span>
                 </div>
               ))}
             </div>
             <div className="mt-3 flex w-full items-baseline justify-between border-t border-slate-200/60 pt-3">
               <Eyebrow>Capital Density</Eyebrow>
-              <span className="font-black tabular-nums text-indigo-600" style={{ fontSize: 12, letterSpacing: "-.02em" }}>{"\u20AC676K / pratica"}</span>
+              <span className="font-black tabular-nums text-indigo-600" style={{ fontSize: 12, letterSpacing: "-.02em" }}>{totalCount ? eur(Math.round(totalCap / totalCount)) : "—"} / pratica</span>
             </div>
           </div>
         </GlassCard>
@@ -2082,13 +2533,13 @@ const DashboardView = memo(({ onOpenDeal }) => {
           <table className="w-full" style={{ borderCollapse: "separate", borderSpacing: 0, minWidth: 640 }}>
             <thead>
               <tr>
-                {["Indirizzo", "Citt\u00E0", "Asset", "Valore", "ROI", "Status"].map((h, i) => (
+                {["Indirizzo", "Città", "Asset", "Valore", "ROI", "Status"].map((h, i) => (
                   <th key={i} className="border-b border-slate-200/60 bg-slate-50/80 text-left font-bold uppercase tracking-[.2em] text-slate-400 backdrop-blur-sm" style={{ fontSize: 8.5, padding: "10px 16px" }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {DATA.filter((d) => d.r > 10).slice(0, 10).map((row, idx) => (
+              {allDeals.filter((d) => d.r > 10).slice(0, 10).map((row, idx) => (
                 <tr key={row.id} onClick={() => onOpenDeal(row)} className="cursor-pointer transition-colors duration-150 hover:bg-indigo-500/[.04]" style={{ opacity: 0, animation: "rowIn .4s cubic-bezier(.22,1,.36,1) " + (0.6 + idx * 0.03) + "s forwards" }}>
                   <td className="border-b border-slate-100/80" style={{ padding: "11px 16px" }}>
                     <span className="block truncate font-semibold text-slate-700" style={{ fontSize: 11, maxWidth: 240 }} title={row.a}>{row.a}</span>
@@ -2113,7 +2564,7 @@ const DashboardView = memo(({ onOpenDeal }) => {
 });
 
 /* ══════ PORTFOLIO VIEW ══════ */
-const PortfolioView = memo(({ onOpenDeal, quickFilter, compareIds, onToggleCompare, onOpenCompare }) => {
+const PortfolioView = memo(({ onOpenDeal, quickFilter, compareIds, onToggleCompare, onOpenCompare, allDeals, onEditDeal, onDeleteDeal, onApproveDeal, onSuspendDeal }) => {
   const [tab, setTab] = useState("all");
   const [q, setQ] = useState("");
   const [dir, setDir] = useState("desc");
@@ -2131,7 +2582,7 @@ const PortfolioView = memo(({ onOpenDeal, quickFilter, compareIds, onToggleCompa
   }, [quickFilter]);
 
   const rows = useMemo(() => {
-    let d = DATA;
+    let d = allDeals;
     if (tab === "target") d = d.filter((x) => x.r > 10);
     else if (tab === "pos") d = d.filter((x) => x.r > 0);
     else if (tab === "neg") d = d.filter((x) => x.r <= 0);
@@ -2142,7 +2593,7 @@ const PortfolioView = memo(({ onOpenDeal, quickFilter, compareIds, onToggleCompa
       d = d.filter((x) => x.a.toLowerCase().includes(s) || x.city.toLowerCase().includes(s));
     }
     return [...d].sort((a, b) => (dir === "desc" ? b.r - a.r : a.r - b.r));
-  }, [tab, q, dir, quickFilter]);
+  }, [tab, q, dir, quickFilter, allDeals]);
 
   useEffect(() => setMenuRowId(null), [tab, q, dir]);
   const capF = rows.reduce((s, d) => s + d.c, 0);
@@ -2153,12 +2604,12 @@ const PortfolioView = memo(({ onOpenDeal, quickFilter, compareIds, onToggleCompa
       <div className="mb-6 flex items-center justify-between" style={{ opacity: 0, animation: "riseIn .5s cubic-bezier(.22,1,.36,1) .05s forwards" }}>
         <div>
           <h2 className="font-black tracking-tighter text-slate-800" style={{ fontSize: 22 }}>Portafoglio</h2>
-          <p className="mt-1 text-slate-400" style={{ fontSize: 11 }}>{rows.length} pratiche \u00B7 Capitale {eur(capF)}</p>
+          <p className="mt-1 text-slate-400" style={{ fontSize: 11 }}>{rows.length} pratiche · Capitale {eur(capF)}</p>
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 rounded-xl border border-white/70 bg-white/55 px-3 py-2 ring-1 ring-white/50 backdrop-blur-xl">
             <Search size={12} strokeWidth={1.5} className="text-slate-400" />
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cerca indirizzo, citt\u00E0\u2026" className="bg-transparent text-slate-600 outline-none" style={{ fontSize: 11, width: 180 }} />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cerca indirizzo, città…" className="bg-transparent text-slate-600 outline-none" style={{ fontSize: 11, width: 180 }} />
           </div>
           <div className="flex gap-0.5 rounded-xl bg-slate-500/[.06] p-1">
             {[["all", "Tutte"], ["target", "In Target"], ["pos", "Positive"], ["neg", "Negative"]].map(([id, l]) => (
@@ -2191,7 +2642,7 @@ const PortfolioView = memo(({ onOpenDeal, quickFilter, compareIds, onToggleCompa
             <thead className="sticky top-0 z-[6]">
               <tr>
                 <th className="border-b border-slate-200/70 bg-slate-50/90 text-left backdrop-blur-sm" style={{ padding: "11px 12px 11px 16px", width: 36 }} />
-                {["Indirizzo", "Citt\u00E0", "Asset", "Valore", "ROI", "Status", ""].map((h, i) => (
+                {["Indirizzo", "Città", "Asset", "Valore", "ROI", "Status", ""].map((h, i) => (
                   <th key={i} className="border-b border-slate-200/70 bg-slate-50/90 text-left font-bold uppercase tracking-[.2em] text-slate-400 backdrop-blur-sm" style={{ fontSize: 8.5, padding: "11px 16px" }}>{h}</th>
                 ))}
               </tr>
@@ -2211,7 +2662,7 @@ const PortfolioView = memo(({ onOpenDeal, quickFilter, compareIds, onToggleCompa
                     {[
                       <span className="block truncate font-semibold text-slate-700" style={{ fontSize: 11, maxWidth: 260 }} title={row.a}>{row.a}</span>,
                       <span className="font-medium text-slate-400" style={{ fontSize: 10.5 }}>{row.city}</span>,
-                      <TypeChip t={row.t} />,
+                      <span className="flex items-center gap-1.5"><TypeChip t={row.t} />{row.source === "manual" && <span className="inline-flex items-center rounded-md font-bold tracking-wide ring-1 bg-amber-50 text-amber-700 ring-amber-500/20" style={{ fontSize: 9.5, padding: "2px 7px" }}>Manuale</span>}{row.source === "imported-xlsx" && <span className="inline-flex items-center rounded-md font-bold tracking-wide ring-1 bg-blue-50 text-blue-700 ring-blue-500/20" style={{ fontSize: 9.5, padding: "2px 7px" }}>Importato</span>}</span>,
                       <span className="font-black tabular-nums text-slate-700" style={{ fontSize: 11.5, letterSpacing: "-.025em" }}>{eur(row.c)}</span>,
                       <RoiChip r={row.r} />,
                       <StatusChip s={row.status} />,
@@ -2219,7 +2670,7 @@ const PortfolioView = memo(({ onOpenDeal, quickFilter, compareIds, onToggleCompa
                       <td key={ci} style={{ padding: "11px 16px", whiteSpace: "nowrap", verticalAlign: "middle", opacity: row.r <= 0 ? 0.5 : 1, borderBottom: "1px solid rgba(241,245,249,.85)", background: checked ? "rgba(99,102,241,.06)" : hov ? "rgba(99,102,241,.038)" : "transparent", boxShadow: hov || checked ? "inset 3px 0 0 0 rgba(99,102,241,.55)" : "none", transition: "background .22s ease,box-shadow .22s ease" }}>{cell}</td>
                     ))}
                     <td style={{ padding: "11px 12px", whiteSpace: "nowrap", borderBottom: "1px solid rgba(241,245,249,.85)", background: checked ? "rgba(99,102,241,.06)" : hov ? "rgba(99,102,241,.038)" : "transparent", transition: "background .22s ease" }} onClick={(e) => e.stopPropagation()}>
-                      <RowMenu row={row} isOpen={menuRowId === row.id} isRowHovered={hov} onToggle={() => setMenuRowId((cur) => (cur === row.id ? null : row.id))} onCloseMenu={() => setMenuRowId(null)} onOpenDeal={onOpenDeal} />
+                      <RowMenu row={row} isOpen={menuRowId === row.id} isRowHovered={hov} onToggle={() => setMenuRowId((cur) => (cur === row.id ? null : row.id))} onCloseMenu={() => setMenuRowId(null)} onOpenDeal={onOpenDeal} isManual={row.source === "manual" || row.source === "imported-xlsx"} onEdit={() => onEditDeal?.(row)} onDelete={() => onDeleteDeal?.(row.id)} onApprove={(r) => onApproveDeal?.(r)} onSuspend={(r) => onSuspendDeal?.(r)} />
                     </td>
                   </tr>
                 );
@@ -2261,11 +2712,11 @@ function loadGoogleMaps(apiKey) {
   return window.__gmapsLoadingPromise;
 }
 
-const MapView = memo(({ onOpenDeal }) => {
+const MapView = memo(({ onOpenDeal, allDeals, onCityFilter }) => {
   const cities = MAP_CITIES.map((m, i) => ({
     ...m,
-    deals: DATA.filter((d) => d.city === m.name).length,
-    cap: CITY_CAP.find((c) => c.name === m.name)?.value || 0,
+    deals: allDeals.filter((d) => d.city === m.name).length,
+    cap: allDeals.filter((d) => d.city === m.name).reduce((s, d) => s + d.c, 0),
     hue: CITY_HUES[i % CITY_HUES.length],
   })).filter((c) => c.deals > 0);
   const mapRef = useRef(null);
@@ -2305,11 +2756,11 @@ const MapView = memo(({ onOpenDeal }) => {
             icon: { path: maps.SymbolPath.CIRCLE, scale: 11, fillColor: c.hue, fillOpacity: 1, strokeColor: "#fff", strokeWeight: 3 },
           });
           const info = new maps.InfoWindow({
-            content: '<div style="font-family:-apple-system,sans-serif;padding:2px 4px"><strong>' + c.name + '</strong><br/><span style="color:#64748b;font-size:12px">' + eur(c.cap) + " \u00B7 " + c.deals + " deal</span></div>",
+            content: '<div style="font-family:-apple-system,sans-serif;padding:2px 4px"><strong>' + c.name + '</strong><br/><span style="color:#64748b;font-size:12px">' + eur(c.cap) + " · " + c.deals + " deal</span></div>",
           });
           marker.addListener("click", () => {
             info.open(map, marker);
-            const deal = DATA.find((d) => d.city === c.name);
+            const deal = allDeals.find((d) => d.city === c.name);
             if (deal) onOpenDeal?.(deal);
           });
         });
@@ -2323,7 +2774,7 @@ const MapView = memo(({ onOpenDeal }) => {
     <div className="flex flex-col p-8">
       <div style={{ opacity: 0, animation: "riseIn .5s cubic-bezier(.22,1,.36,1) .05s forwards" }}>
         <h2 className="font-black tracking-tighter text-slate-800" style={{ fontSize: 22 }}>Mappa Asset</h2>
-        <p className="mt-1 text-slate-400" style={{ fontSize: 11 }}>Distribuzione geografica del portafoglio \u2014 Google Maps JavaScript API</p>
+        <p className="mt-1 text-slate-400" style={{ fontSize: 11 }}>Distribuzione geografica del portafoglio — Google Maps JavaScript API</p>
       </div>
       <GlassCard delay={0.15} className="relative mt-6 min-h-[560px] overflow-hidden">
         <div ref={mapRef} className="absolute inset-0" style={{ opacity: status === "ready" ? 1 : 0, transition: "opacity .4s ease" }} />
@@ -2332,17 +2783,23 @@ const MapView = memo(({ onOpenDeal }) => {
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/60 bg-white/70 backdrop-blur-lg">
               {status === "loading" ? <Sparkles size={20} className="text-indigo-500" style={{ animation: "pulseGlow 1.4s ease-in-out infinite" }} /> : <Globe size={20} className="text-indigo-500" />}
             </div>
-            <p className="font-black text-slate-700" style={{ fontSize: 13 }}>{status === "loading" ? "Caricamento Google Maps\u2026" : "Google Maps non disponibile in questo ambiente"}</p>
-            <p className="max-w-md text-slate-400" style={{ fontSize: 11, lineHeight: 1.6 }}>{status === "loading" ? "Caricamento in corso\u2026" : "Portalo nel progetto reale per vedere la mappa con marker cliccabili."}</p>
+            <p className="font-black text-slate-700" style={{ fontSize: 13 }}>{status === "loading" ? "Caricamento Google Maps…" : "Google Maps non disponibile in questo ambiente"}</p>
+            <p className="max-w-md text-slate-400" style={{ fontSize: 11, lineHeight: 1.6 }}>{status === "loading" ? "Caricamento in corso…" : "Portalo nel progetto reale per vedere la mappa con marker cliccabili."}</p>
           </div>
         )}
         <div className="absolute right-4 top-4 z-10 flex flex-col items-end gap-1.5">
           {cities.map((c, i) => (
-            <div key={c.name} className="flex items-center gap-2 rounded-xl border border-white/70 bg-white/85 px-3 py-1.5 backdrop-blur-xl" style={{ boxShadow: "0 4px 16px -4px rgba(15,23,42,.18)", opacity: 0, animation: "riseIn .5s cubic-bezier(.22,1,.36,1) " + (0.3 + i * 0.08) + "s forwards" }}>
+            <button
+              key={c.name}
+              onClick={() => onCityFilter?.(c.name)}
+              title={`Filtra portfolio per ${c.name}`}
+              className="flex items-center gap-2 rounded-xl border border-white/70 bg-white/85 px-3 py-1.5 backdrop-blur-xl transition-all duration-200 hover:-translate-y-px hover:bg-white hover:shadow-md"
+              style={{ boxShadow: "0 4px 16px -4px rgba(15,23,42,.18)", opacity: 0, animation: "riseIn .5s cubic-bezier(.22,1,.36,1) " + (0.3 + i * 0.08) + "s forwards" }}
+            >
               <span className="h-2 w-2 rounded-full" style={{ background: c.hue, boxShadow: "0 0 6px " + c.hue }} />
               <span className="font-black text-slate-700" style={{ fontSize: 10.5 }}>{c.name}</span>
               <span className="font-bold tabular-nums text-slate-400" style={{ fontSize: 9.5 }}>{c.deals} deal</span>
-            </div>
+            </button>
           ))}
         </div>
       </GlassCard>
@@ -2351,23 +2808,21 @@ const MapView = memo(({ onOpenDeal }) => {
 });
 
 /* ══════ REPORT VIEW ══════ */
-const ReportView = memo(() => {
-  const reports = [
-    { title: "Q3 2026 \u2014 Analisi Portafoglio", date: "15 Lug 2026", type: "Trimestrale", I: FileBarChart, status: "Generato" },
-    { title: "Due Diligence \u2014 Via Spadolini 9", date: "12 Lug 2026", type: "Deal Report", I: Target, status: "In Corso" },
-    { title: "Risk Assessment \u2014 Genova", date: "8 Lug 2026", type: "Risk Report", I: AlertTriangle, status: "Generato" },
-    { title: "Q2 2026 \u2014 Performance Review", date: "28 Giu 2026", type: "Trimestrale", I: FileBarChart, status: "Generato" },
-    { title: "Market Update \u2014 Milano Centro", date: "20 Giu 2026", type: "Market Intel", I: TrendingUp, status: "Generato" },
-  ];
+const ReportView = memo(({ allDeals, generatedReports, onGenerateReport }) => {
   const handleGenerate = () => {
-    const topDeals = [...DATA].sort((a, b) => b.r - a.r).slice(0, 5);
+    const topDeals = [...allDeals].sort((a, b) => b.r - a.r).slice(0, 5);
     printDeals(topDeals);
+    onGenerateReport?.({
+      title: "Top 5 Deal per ROI — " + new Date().toLocaleDateString("it-IT", { day: "2-digit", month: "short", year: "numeric" }),
+      date: new Date().toLocaleDateString("it-IT", { day: "2-digit", month: "long", year: "numeric" }),
+      count: topDeals.length,
+    });
   };
   return (
     <div className="p-8">
       <div style={{ opacity: 0, animation: "riseIn .5s cubic-bezier(.22,1,.36,1) .05s forwards" }}>
         <h2 className="font-black tracking-tighter text-slate-800" style={{ fontSize: 22 }}>Report</h2>
-        <p className="mt-1 text-slate-400" style={{ fontSize: 11 }}>Documentazione generata e in elaborazione</p>
+        <p className="mt-1 text-slate-400" style={{ fontSize: 11 }}>Esporta analisi del portafoglio in PDF</p>
       </div>
       <div className="mt-6 grid grid-cols-2 gap-5">
         <GlassCard delay={0.15} className="group cursor-pointer overflow-hidden border-dashed border-indigo-300/40" hover onClick={handleGenerate}>
@@ -2376,22 +2831,30 @@ const ReportView = memo(() => {
               <Sparkles size={22} className="text-white" />
             </div>
             <p className="font-black tracking-tight text-slate-800" style={{ fontSize: 14 }}>Genera Nuovo Report</p>
-            <p className="mt-1 text-slate-400" style={{ fontSize: 10 }}>Top 5 deal per ROI \u00B7 esportazione PDF immediata</p>
+            <p className="mt-1 text-slate-400" style={{ fontSize: 10 }}>Top 5 deal per ROI · esportazione PDF immediata</p>
           </div>
         </GlassCard>
         <GlassCard delay={0.22} className="overflow-hidden">
-          <div className="px-5 pb-2 pt-5"><Eyebrow>Report Recenti</Eyebrow></div>
+          <div className="px-5 pb-2 pt-5"><Eyebrow>Report Generati</Eyebrow></div>
           <div className="px-2 pb-3">
-            {reports.map((r, i) => (
-              <div key={i} className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-3 transition-colors duration-150 hover:bg-indigo-500/[.04]" style={{ opacity: 0, animation: "riseIn .4s cubic-bezier(.22,1,.36,1) " + (0.3 + i * 0.06) + "s forwards" }}>
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-500/10"><r.I size={16} className="text-indigo-500" /></div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-bold text-slate-700" style={{ fontSize: 11 }}>{r.title}</p>
-                  <p className="text-slate-400" style={{ fontSize: 9.5 }}>{r.date} \u00B7 {r.type}</p>
-                </div>
-                <span className={"rounded-md font-bold ring-1 " + (r.status === "Generato" ? "bg-blue-500/10 text-blue-700 ring-blue-500/20" : "bg-fuchsia-400/10 text-fuchsia-600 ring-fuchsia-400/20")} style={{ fontSize: 9, padding: "2px 7px" }}>{r.status}</span>
+            {generatedReports.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 px-4 py-8 text-center">
+                <FileText size={22} className="text-slate-300" />
+                <p className="font-semibold text-slate-400" style={{ fontSize: 11 }}>Nessun report generato</p>
+                <p className="text-slate-300" style={{ fontSize: 10 }}>Usa il pulsante a sinistra per crearne uno</p>
               </div>
-            ))}
+            ) : (
+              generatedReports.map((r, i) => (
+                <div key={i} className="flex items-center gap-3 rounded-xl px-3 py-3" style={{ opacity: 0, animation: "riseIn .4s cubic-bezier(.22,1,.36,1) " + (0.3 + i * 0.06) + "s forwards" }}>
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-500/10"><FileBarChart size={16} className="text-indigo-500" /></div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-bold text-slate-700" style={{ fontSize: 11 }}>{r.title}</p>
+                    <p className="text-slate-400" style={{ fontSize: 9.5 }}>{r.date} · {r.count} deal</p>
+                  </div>
+                  <span className="rounded-md bg-blue-500/10 font-bold text-blue-700 ring-1 ring-blue-500/20" style={{ fontSize: 9, padding: "2px 7px" }}>PDF</span>
+                </div>
+              ))
+            )}
           </div>
         </GlassCard>
       </div>
@@ -2400,13 +2863,17 @@ const ReportView = memo(() => {
 });
 
 /* ══════ SETTINGS VIEW ══════ */
-const SettingsView = memo(() => {
-  const sections = [
-    { icon: User, title: "Profilo", desc: "Account e preferenze", items: ["Nome: Luca Pipia", "Ruolo: Investment Analyst", "Team: Elekta RE"] },
-    { icon: Shield, title: "Sicurezza", desc: "Autenticazione e permessi", items: ["2FA: Attivo", "Ultimo login: Oggi, 09:41", "Sessioni attive: 2"] },
-    { icon: Database, title: "Dati", desc: "Dataset e integrazioni", items: ["Fonte: Nuovo_Pulito.xlsx", "836 pratiche caricate", "Ultimo sync: 2h fa"] },
-    { icon: Wifi, title: "Integrazioni", desc: "API e servizi connessi", items: ["ONBILD: Connesso", "Google Maps: API attiva", "Export: PDF, XLSX"] },
-  ];
+const SettingsView = memo(({ profile, onSaveProfile, allDeals }) => {
+  const [editingField, setEditingField] = useState(null);
+  const [draft, setDraft] = useState(profile);
+  useEffect(() => { setDraft(profile); }, [profile]);
+
+  const handleSave = () => { onSaveProfile(draft); setEditingField(null); };
+
+  const totalDeals = allDeals.length;
+  const manualCount = allDeals.filter((d) => d.source === "manual").length;
+  const importedCount = allDeals.filter((d) => d.source === "imported-xlsx").length;
+
   return (
     <div className="p-8">
       <div style={{ opacity: 0, animation: "riseIn .5s cubic-bezier(.22,1,.36,1) .05s forwards" }}>
@@ -2414,27 +2881,115 @@ const SettingsView = memo(() => {
         <p className="mt-1 text-slate-400" style={{ fontSize: 11 }}>Configurazione terminale e profilo</p>
       </div>
       <div className="mt-6 grid grid-cols-2 gap-5">
-        {sections.map((s, i) => (
-          <GlassCard key={i} delay={0.12 + i * 0.08} className="overflow-hidden" hover>
-            <div className="p-5">
-              <div className="mb-4 flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-500/10"><s.icon size={18} className="text-indigo-500" /></div>
-                <div>
-                  <p className="font-black tracking-tight text-slate-800" style={{ fontSize: 13 }}>{s.title}</p>
-                  <p className="text-slate-400" style={{ fontSize: 10 }}>{s.desc}</p>
-                </div>
-              </div>
-              <div className="space-y-2">
-                {s.items.map((item, j) => (
-                  <div key={j} className="flex items-center gap-2 rounded-lg bg-slate-500/[.04] px-3 py-1.5">
-                    <span className="h-1 w-1 rounded-full bg-indigo-400" />
-                    <span className="font-medium text-slate-600" style={{ fontSize: 10.5 }}>{item}</span>
-                  </div>
-                ))}
+        {/* Profilo — editabile */}
+        <GlassCard delay={0.12} className="overflow-hidden" hover>
+          <div className="p-5">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-500/10"><User size={18} className="text-indigo-500" /></div>
+              <div>
+                <p className="font-black tracking-tight text-slate-800" style={{ fontSize: 13 }}>Profilo</p>
+                <p className="text-slate-400" style={{ fontSize: 10 }}>Clicca un campo per modificarlo</p>
               </div>
             </div>
-          </GlassCard>
-        ))}
+            <div className="space-y-2">
+              {[["name", "Nome", draft.name], ["role", "Ruolo", draft.role]].map(([field, label, val]) => (
+                <div key={field} className="rounded-lg bg-slate-500/[.04] px-3 py-1.5">
+                  {editingField === field ? (
+                    <div className="flex items-center gap-2">
+                      <span className="shrink-0 font-bold text-slate-400" style={{ fontSize: 9.5 }}>{label}:</span>
+                      <input
+                        value={draft[field]}
+                        onChange={(e) => setDraft((p) => ({ ...p, [field]: e.target.value }))}
+                        onKeyDown={(e) => { if (e.key === "Enter") handleSave(); if (e.key === "Escape") setEditingField(null); }}
+                        onBlur={handleSave}
+                        autoFocus
+                        className="flex-1 bg-transparent text-slate-700 outline-none"
+                        style={{ fontSize: 10.5 }}
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex cursor-text items-center gap-2" onClick={() => setEditingField(field)}>
+                      <span className="h-1 w-1 rounded-full bg-indigo-400" />
+                      <span className="font-medium text-slate-600" style={{ fontSize: 10.5 }}>{label}: <strong>{val || "—"}</strong></span>
+                      <Pencil size={9} className="ml-auto text-slate-300" />
+                    </div>
+                  )}
+                </div>
+              ))}
+              <div className="flex items-center gap-2 rounded-lg bg-slate-500/[.04] px-3 py-1.5">
+                <span className="h-1 w-1 rounded-full bg-indigo-400" />
+                <span className="font-medium text-slate-600" style={{ fontSize: 10.5 }}>Team: <strong>Elekta RE</strong></span>
+              </div>
+            </div>
+          </div>
+        </GlassCard>
+
+        {/* Dati — info reali */}
+        <GlassCard delay={0.20} className="overflow-hidden" hover>
+          <div className="p-5">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-500/10"><Database size={18} className="text-indigo-500" /></div>
+              <div>
+                <p className="font-black tracking-tight text-slate-800" style={{ fontSize: 13 }}>Dataset</p>
+                <p className="text-slate-400" style={{ fontSize: 10 }}>Pratiche caricate in sessione</p>
+              </div>
+            </div>
+            <div className="space-y-2">
+              {[
+                ["Pratiche totali", totalDeals.toString()],
+                ["Aggiunte manualmente", manualCount.toString()],
+                ["Importate da Excel", importedCount.toString()],
+              ].map(([label, val]) => (
+                <div key={label} className="flex items-center gap-2 rounded-lg bg-slate-500/[.04] px-3 py-1.5">
+                  <span className="h-1 w-1 rounded-full bg-indigo-400" />
+                  <span className="font-medium text-slate-600" style={{ fontSize: 10.5 }}>{label}: <strong>{val}</strong></span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </GlassCard>
+
+        {/* Sicurezza — non configurabile in locale */}
+        <GlassCard delay={0.28} className="overflow-hidden" hover>
+          <div className="p-5">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-400/10"><Shield size={18} className="text-slate-400" /></div>
+              <div>
+                <p className="font-black tracking-tight text-slate-800" style={{ fontSize: 13 }}>Sicurezza</p>
+                <p className="text-slate-400" style={{ fontSize: 10 }}>Autenticazione e permessi</p>
+              </div>
+            </div>
+            <div className="rounded-lg border border-dashed border-slate-200 px-3 py-3 text-center">
+              <p className="font-semibold text-slate-400" style={{ fontSize: 10.5 }}>Configurazione disponibile in produzione</p>
+              <p className="mt-1 text-slate-300" style={{ fontSize: 9.5 }}>2FA, SSO, gestione sessioni</p>
+            </div>
+          </div>
+        </GlassCard>
+
+        {/* Integrazioni */}
+        <GlassCard delay={0.36} className="overflow-hidden" hover>
+          <div className="p-5">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-500/10"><Wifi size={18} className="text-indigo-500" /></div>
+              <div>
+                <p className="font-black tracking-tight text-slate-800" style={{ fontSize: 13 }}>Integrazioni</p>
+                <p className="text-slate-400" style={{ fontSize: 10 }}>API e servizi connessi</p>
+              </div>
+            </div>
+            <div className="space-y-2">
+              {[
+                ["Google Maps API", "Attiva"],
+                ["Export PDF", "Attivo"],
+                ["Import Excel (.xlsx)", "Attivo"],
+              ].map(([label, val]) => (
+                <div key={label} className="flex items-center gap-2 rounded-lg bg-slate-500/[.04] px-3 py-1.5">
+                  <span className="h-1 w-1 rounded-full bg-emerald-400" />
+                  <span className="font-medium text-slate-600" style={{ fontSize: 10.5 }}>{label}: <strong className="text-emerald-600">{val}</strong></span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </GlassCard>
       </div>
     </div>
   );
@@ -2445,9 +3000,47 @@ const SettingsView = memo(() => {
    ══════════════════════════════════════════════════════════════════ */
 export default function ElektaTerminal() {
   const { loading } = usePortfolioData();
+  const { allDeals: persistedDeals, manualDeals, addDeal, deleteDeal, updateDeal, setStatus } = usePersistentDeals();
+  const [importedDeals, setImportedDeals] = useState([]);
+  const allDeals = useMemo(() => [...persistedDeals, ...importedDeals], [persistedDeals, importedDeals]);
+
+  const [profile, setProfileState] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("elekta_profile") || '{"name":"Luca Pipia","role":"Investment Analyst"}'); }
+    catch { return { name: "Luca Pipia", role: "Investment Analyst" }; }
+  });
+  const saveProfile = useCallback((p) => {
+    setProfileState(p);
+    try { localStorage.setItem("elekta_profile", JSON.stringify(p)); } catch {}
+  }, []);
+
+  const [generatedReports, setGeneratedReports] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("elekta_reports") || "[]"); }
+    catch { return []; }
+  });
+  const addReport = useCallback((r) => {
+    setGeneratedReports((prev) => {
+      const updated = [r, ...prev].slice(0, 10);
+      try { localStorage.setItem("elekta_reports", JSON.stringify(updated)); } catch {}
+      return updated;
+    });
+  }, []);
+
+  const handleLogout = useCallback(() => {
+    ["elekta_manual_deals", "elekta_overrides", "elekta_profile", "elekta_reports"].forEach((k) => {
+      try { localStorage.removeItem(k); } catch {}
+    });
+    window.location.reload();
+  }, []);
+
   const [nav, setNav] = useState("dashboard");
   const [activeDeal, setActiveDeal] = useState(null);
   const [drawerClosing, setDrawerClosing] = useState(false);
+
+  const [newDealOpen, setNewDealOpen] = useState(false);
+  const [newDealClosing, setNewDealClosing] = useState(false);
+  const [editDeal, setEditDeal] = useState(null);
+  const [toastMsg, setToastMsg] = useState(null);
+  const importRef = useRef(null);
 
   const [compareIds, setCompareIds] = useState([]);
   const [compareOpen, setCompareOpen] = useState(false);
@@ -2459,6 +3052,73 @@ export default function ElektaTerminal() {
   const openDeal = useCallback((row) => { setDrawerClosing(false); setActiveDeal(row); }, []);
   const requestClose = useCallback(() => setDrawerClosing(true), []);
   const finishClose = useCallback(() => { setActiveDeal(null); setDrawerClosing(false); }, []);
+
+  const openNewDeal = useCallback(() => { setEditDeal(null); setNewDealClosing(false); setNewDealOpen(true); }, []);
+  const requestCloseNewDeal = useCallback(() => setNewDealClosing(true), []);
+  const finishCloseNewDeal = useCallback(() => { setNewDealOpen(false); setNewDealClosing(false); setEditDeal(null); }, []);
+
+  const handleSubmitDeal = useCallback((fields) => {
+    if (editDeal) {
+      updateDeal(editDeal.id, fields);
+      setToastMsg("Pratica modificata con successo");
+    } else {
+      addDeal(fields);
+      setToastMsg("Pratica aggiunta con successo");
+    }
+  }, [editDeal, addDeal, updateDeal]);
+
+  const handleEditDeal = useCallback((deal) => {
+    setEditDeal(deal);
+    setNewDealClosing(false);
+    setNewDealOpen(true);
+    if (activeDeal) setDrawerClosing(true);
+  }, [activeDeal]);
+
+  const handleDeleteDeal = useCallback((id) => { deleteDeal(id); setToastMsg("Pratica rimossa"); }, [deleteDeal]);
+
+  const handleApproveDeal = useCallback((deal) => {
+    setStatus(deal.id, "Approvato");
+    setToastMsg("Deal approvato");
+    if (activeDeal?.id === deal.id) setActiveDeal((d) => ({ ...d, status: "Approvato" }));
+  }, [setStatus, activeDeal]);
+
+  const handleSuspendDeal = useCallback((deal) => {
+    setStatus(deal.id, "In Revisione");
+    setToastMsg("Deal sospeso — In Revisione");
+    if (activeDeal?.id === deal.id) setActiveDeal((d) => ({ ...d, status: "In Revisione" }));
+  }, [setStatus, activeDeal]);
+
+  const handleImportExcel = useCallback((e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const XLSX = window.XLSX;
+        if (!XLSX) { alert("Installa SheetJS per usare l'import Excel."); return; }
+        const wb = XLSX.read(ev.target.result, { type: "array" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(ws);
+        const parsed = rows
+          .map((row, idx) => {
+            const a = String(row.Indirizzo || row.a || "").trim();
+            const t = String(row.Tipo || row.t || "Stabili").trim();
+            const c = Number(row.Costo || row.c || 0);
+            const r = Number(row.ROI || row.r || 0);
+            if (!a || c <= 0) return null;
+            return { a, t, c, r, note: "", id: "xlsx-" + Date.now() + "-" + idx, source: "imported-xlsx", city: cityOf(a), status: statusOf(r) };
+          })
+          .filter(Boolean);
+        setImportedDeals((prev) => [...prev, ...parsed]);
+        setToastMsg(`${parsed.length} pratiche importate da Excel`);
+      } catch (err) {
+        console.error(err);
+        setToastMsg("Errore durante l'import del file Excel");
+      }
+    };
+    reader.readAsArrayBuffer(file);
+    e.target.value = "";
+  }, []);
 
   const toggleCompare = useCallback((id) => {
     setCompareIds((cur) => {
@@ -2483,8 +3143,9 @@ export default function ElektaTerminal() {
   }, []);
 
   const applyQuickFilter = useCallback((type) => { setNav("portfolio"); setQuickFilter({ type, ts: Date.now() }); }, []);
+  const handleCityFilter = useCallback((cityName) => { applyQuickFilter(cityName.toLowerCase()); }, [applyQuickFilter]);
 
-  const compareDeals = useMemo(() => compareIds.map((id) => DATA.find((d) => d.id === id)).filter(Boolean), [compareIds]);
+  const compareDeals = useMemo(() => compareIds.map((id) => allDeals.find((d) => d.id === id)).filter(Boolean), [compareIds, allDeals]);
 
   const NAV_ITEMS = [
     { k: "dashboard", I: LayoutDashboard, l: "Dashboard" },
@@ -2497,12 +3158,12 @@ export default function ElektaTerminal() {
 
   const renderView = () => {
     switch (nav) {
-      case "dashboard": return <DashboardView onOpenDeal={openDeal} />;
-      case "portfolio": return <PortfolioView onOpenDeal={openDeal} quickFilter={quickFilter} compareIds={compareIds} onToggleCompare={toggleCompare} onOpenCompare={openCompare} />;
-      case "map": return <MapView onOpenDeal={openDeal} />;
-      case "report": return <ReportView />;
-      case "settings": return <SettingsView />;
-      default: return <DashboardView onOpenDeal={openDeal} />;
+      case "dashboard": return <DashboardView onOpenDeal={openDeal} allDeals={allDeals} />;
+      case "portfolio": return <PortfolioView onOpenDeal={openDeal} quickFilter={quickFilter} compareIds={compareIds} onToggleCompare={toggleCompare} onOpenCompare={openCompare} allDeals={allDeals} onEditDeal={handleEditDeal} onDeleteDeal={handleDeleteDeal} onApproveDeal={handleApproveDeal} onSuspendDeal={handleSuspendDeal} />;
+      case "map": return <MapView onOpenDeal={openDeal} allDeals={allDeals} onCityFilter={handleCityFilter} />;
+      case "report": return <ReportView allDeals={allDeals} generatedReports={generatedReports} onGenerateReport={addReport} />;
+      case "settings": return <SettingsView profile={profile} onSaveProfile={saveProfile} allDeals={allDeals} />;
+      default: return <DashboardView onOpenDeal={openDeal} allDeals={allDeals} />;
     }
   };
 
@@ -2532,10 +3193,8 @@ export default function ElektaTerminal() {
           );
         })}
         <div className="mt-auto flex flex-col items-center gap-3">
-          <button className="flex h-10 w-10 items-center justify-center rounded-2xl text-slate-400 transition-all duration-200 hover:bg-slate-100/80 hover:text-slate-600"><Bell size={16} strokeWidth={1.5} /></button>
-          <div className="flex h-9 w-9 items-center justify-center rounded-full" style={{ background: "linear-gradient(140deg,#a78bfa,#6366f1)", boxShadow: "0 4px 14px -3px rgba(99,102,241,.55),inset 0 1px 0 rgba(255,255,255,.3)" }}>
-            <span className="font-black text-white" style={{ fontSize: 10.5, letterSpacing: "-.02em" }}>LP</span>
-          </div>
+          <NotificationBell manualDeals={manualDeals} />
+          <UserMenu profile={profile} onSaveProfile={saveProfile} onLogout={handleLogout} />
         </div>
       </aside>
 
@@ -2549,17 +3208,21 @@ export default function ElektaTerminal() {
           <div className="flex items-center gap-2.5">
             <button onClick={() => setPaletteOpen(true)} className="flex items-center gap-2 rounded-xl border border-white/70 bg-white/55 px-3 py-2 text-slate-400 backdrop-blur-xl transition-all duration-200 hover:bg-white" style={{ fontSize: 11, width: 200 }}>
               <Search size={12} strokeWidth={1.5} />
-              <span className="flex-1 text-left" style={{ fontSize: 11 }}>Cerca o vai a\u2026</span>
+              <span className="flex-1 text-left" style={{ fontSize: 11 }}>Cerca o vai a…</span>
               <span className="flex items-center gap-0.5 rounded-md border border-slate-200 px-1.5 py-0.5 font-bold text-slate-400" style={{ fontSize: 9.5 }}>
                 <Command size={9} strokeWidth={2} />K
               </span>
             </button>
-            <button className="flex items-center gap-1.5 rounded-xl border border-white/70 bg-white/55 px-3 py-2 font-semibold text-slate-600 backdrop-blur-xl transition-all duration-200 hover:bg-white" style={{ fontSize: 11 }}>
-              <Calendar size={12} strokeWidth={1.5} />
-              Q3 2026
-              <ChevronDown size={10} strokeWidth={1.5} className="text-slate-400" />
+            <button onClick={openNewDeal} className="flex items-center gap-1.5 rounded-xl border border-indigo-200/70 bg-indigo-50/60 px-3 py-2 font-bold text-indigo-600 backdrop-blur-xl transition-all duration-200 hover:bg-indigo-100/70" style={{ fontSize: 11 }}>
+              <Plus size={12} strokeWidth={2} />
+              Nuova Pratica
             </button>
-            <button onClick={() => printDeals([...DATA].sort((a, b) => b.r - a.r).slice(0, 10))} className="flex items-center gap-1.5 rounded-xl px-3.5 py-2 font-bold text-white transition-transform duration-200 hover:-translate-y-px active:translate-y-0" style={{ fontSize: 11, background: "linear-gradient(140deg,#6366f1,#7c3aed)", boxShadow: "0 8px 22px -8px rgba(99,102,241,.75), inset 0 1px 0 rgba(255,255,255,.22)" }}>
+            <input ref={importRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportExcel} />
+            <button onClick={() => importRef.current?.click()} className="flex items-center gap-1.5 rounded-xl border border-white/70 bg-white/55 px-3 py-2 font-semibold text-slate-600 backdrop-blur-xl transition-all duration-200 hover:bg-white" style={{ fontSize: 11 }}>
+              <FileUp size={12} strokeWidth={1.5} />
+              Importa Excel
+            </button>
+            <button onClick={() => printDeals([...allDeals].sort((a, b) => b.r - a.r).slice(0, 10))} className="flex items-center gap-1.5 rounded-xl px-3.5 py-2 font-bold text-white transition-transform duration-200 hover:-translate-y-px active:translate-y-0" style={{ fontSize: 11, background: "linear-gradient(140deg,#6366f1,#7c3aed)", boxShadow: "0 8px 22px -8px rgba(99,102,241,.75), inset 0 1px 0 rgba(255,255,255,.22)" }}>
               <Download size={12} strokeWidth={1.5} />
               Esporta PDF
             </button>
@@ -2570,9 +3233,11 @@ export default function ElektaTerminal() {
         </main>
       </div>
 
-      {activeDeal && <DealDrawer deal={activeDeal} isClosing={drawerClosing} onRequestClose={requestClose} onExited={finishClose} />}
+      {activeDeal && <DealDrawer deal={activeDeal} isClosing={drawerClosing} onRequestClose={requestClose} onExited={finishClose} onEdit={handleEditDeal} onApprove={handleApproveDeal} />}
       {compareOpen && <CompareDrawer deals={compareDeals} isClosing={compareClosing} onRequestClose={requestCloseCompare} onExited={finishCloseCompare} onRemove={toggleCompare} />}
-      <CommandPalette isOpen={paletteOpen} onClose={() => setPaletteOpen(false)} setNav={setNav} openDeal={openDeal} applyQuickFilter={applyQuickFilter} />
+      <NewDealDrawer isOpen={newDealOpen} isClosing={newDealClosing} onRequestClose={requestCloseNewDeal} onExited={finishCloseNewDeal} onSubmit={handleSubmitDeal} initialValues={editDeal} />
+      <CommandPalette isOpen={paletteOpen} onClose={() => setPaletteOpen(false)} setNav={setNav} openDeal={openDeal} applyQuickFilter={applyQuickFilter} allDeals={allDeals} openNewDeal={openNewDeal} />
+      {toastMsg && <Toast message={toastMsg} onDismiss={() => setToastMsg(null)} />}
     </div>
   );
 }
