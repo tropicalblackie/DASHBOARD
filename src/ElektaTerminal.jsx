@@ -698,19 +698,17 @@ const GlassCard = ({ children, className = "", delay = 0, hover = false, ...prop
   );
 };
 
-const TypeChip = ({ t }) => (
-  <span
-    className={
-      "inline-flex items-center rounded-md font-bold tracking-wide " +
-      (t === "Terreno"
-        ? "bg-blue-500/10 text-blue-700 ring-1 ring-blue-500/20"
-        : "bg-indigo-500/10 text-indigo-700 ring-1 ring-indigo-500/20")
-    }
-    style={{ fontSize: 9.5, padding: "2px 7px" }}
-  >
-    {t}
-  </span>
-);
+const TYPE_STYLES = {
+  Stabili:  { bg: "bg-indigo-500/10", text: "text-indigo-700", ring: "ring-indigo-500/20" },
+  Terreno:  { bg: "bg-blue-500/10",   text: "text-blue-700",   ring: "ring-blue-500/20"   },
+  Flipping: { bg: "bg-emerald-500/10",text: "text-emerald-700",ring: "ring-emerald-500/20"},
+};
+const TypeChip = ({ t }) => {
+  const s = TYPE_STYLES[t] || TYPE_STYLES.Stabili;
+  return (
+    <span className={"inline-flex items-center rounded-md font-bold tracking-wide ring-1 " + s.bg + " " + s.text + " " + s.ring} style={{ fontSize: 9.5, padding: "2px 7px" }}>{t}</span>
+  );
+};
 const StatusChip = ({ s }) => {
   const cls = {
     Approvato: "bg-blue-500/10 text-blue-700 ring-blue-500/20",
@@ -1003,7 +1001,7 @@ const NewDealDrawer = ({ isOpen, isClosing, onRequestClose, onExited, onSubmit, 
   };
 
   if (!isOpen) return null;
-  const isEdit = !!initialValues;
+  const isEdit = !!(initialValues?.id);
 
   return (
     <>
@@ -1065,6 +1063,7 @@ const NewDealDrawer = ({ isOpen, isClosing, onRequestClose, onExited, onSubmit, 
               >
                 <option>Stabili</option>
                 <option>Terreno</option>
+                <option>Flipping</option>
               </select>
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -2398,7 +2397,7 @@ const ViewTransition = ({ viewKey, children }) => {
 };
 
 /* ══════ DASHBOARD VIEW ══════ */
-const DashboardView = memo(({ onOpenDeal, allDeals }) => {
+const DashboardView = memo(({ onOpenDeal, allDeals, onOpenNewDeal, onNavPortfolio }) => {
   const [pieHover, setPieHover] = useState(null);
   const hi = useMemo(() => allDeals.filter((d) => d.r > 10), [allDeals]);
   const mid = useMemo(() => allDeals.filter((d) => d.r > 0 && d.r <= 10), [allDeals]);
@@ -2414,9 +2413,40 @@ const DashboardView = memo(({ onOpenDeal, allDeals }) => {
   const animatedTarget = useCountUp(targetCount);
 
   const allocDynamic = useMemo(() => [
-    { name: "Stabili", value: allDeals.filter((d) => d.t === "Stabili").length, color: "#6366f1", glow: "#818cf8" },
-    { name: "Terreno", value: allDeals.filter((d) => d.t === "Terreno").length, color: "#3b82f6", glow: "#60a5fa" },
+    { name: "Stabili",  value: allDeals.filter((d) => d.t === "Stabili").length,  color: "#6366f1", glow: "#818cf8" },
+    { name: "Terreno",  value: allDeals.filter((d) => d.t === "Terreno").length,  color: "#3b82f6", glow: "#60a5fa" },
+    { name: "Flipping", value: allDeals.filter((d) => d.t === "Flipping").length, color: "#10b981", glow: "#34d399" },
   ], [allDeals]);
+
+  // last 12 months bar chart data
+  const monthlyData = useMemo(() => {
+    const now = new Date();
+    return Array.from({ length: 12 }, (_, i) => {
+      const d = new Date(now.getFullYear(), now.getMonth() - 11 + i, 1);
+      const label = d.toLocaleString("it-IT", { month: "short" });
+      // manual deals have createdAt; static DATA deals are distributed across months via index
+      const count = allDeals.filter((deal) => {
+        if (deal.createdAt) {
+          const cd = new Date(deal.createdAt);
+          return cd.getFullYear() === d.getFullYear() && cd.getMonth() === d.getMonth();
+        }
+        // static deals: distribute by id modulo across last 12 months
+        return (deal.id % 12) === i;
+      }).length;
+      return { label, count };
+    });
+  }, [allDeals]);
+
+  // recent deals sorted by createdAt desc (manual), then by id desc (static)
+  const recentDeals = useMemo(() => {
+    return [...allDeals]
+      .sort((a, b) => {
+        const ta = a.createdAt ? new Date(a.createdAt).getTime() : a.id;
+        const tb = b.createdAt ? new Date(b.createdAt).getTime() : b.id;
+        return tb - ta;
+      })
+      .slice(0, 6);
+  }, [allDeals]);
   return (
     <div className="space-y-6 px-8 py-8">
       <div className="grid grid-cols-4 gap-5">
@@ -2672,7 +2702,94 @@ const DashboardView = memo(({ onOpenDeal, allDeals }) => {
           </div>
         </GlassCard>
       </div>
-      <GlassCard delay={0.53} className="overflow-hidden">
+      {/* Quick-create cards */}
+      <div className="grid grid-cols-3 gap-5" style={{ opacity: 0, animation: "riseIn .5s cubic-bezier(.22,1,.36,1) .44s forwards" }}>
+        {[
+          { tipo: "Stabili",  icon: "🏢", color: "#6366f1", glow: "rgba(99,102,241,.18)",  sub: "Immobile residenziale o commerciale" },
+          { tipo: "Terreno",  icon: "🌱", color: "#3b82f6", glow: "rgba(59,130,246,.18)",  sub: "Area edificabile o agricola" },
+          { tipo: "Flipping", icon: "🔄", color: "#10b981", glow: "rgba(16,185,129,.18)",  sub: "Acquisto, ristrutturazione e rivendita" },
+        ].map(({ tipo, icon, color, glow, sub }) => (
+          <button
+            key={tipo}
+            onClick={() => onOpenNewDeal?.(tipo)}
+            className="group flex items-center gap-4 rounded-2xl border border-white/60 bg-white/55 px-5 py-4 text-left backdrop-blur-xl transition-all duration-200 hover:-translate-y-0.5 hover:border-white/80 hover:bg-white/80"
+            style={{ boxShadow: "0 2px 8px rgba(15,23,42,.04), 0 8px 24px -8px " + glow }}
+          >
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-xl" style={{ background: "linear-gradient(135deg," + color + "22," + color + "11)", border: "1.5px solid " + color + "33" }}>{icon}</div>
+            <div>
+              <p className="font-black tracking-tight text-slate-800" style={{ fontSize: 13 }}>{tipo}</p>
+              <p className="mt-0.5 text-slate-400" style={{ fontSize: 10.5 }}>{sub}</p>
+            </div>
+            <div className="ml-auto opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+              <div className="flex h-7 w-7 items-center justify-center rounded-full" style={{ background: color }}>
+                <Plus size={13} strokeWidth={2.5} className="text-white" />
+              </div>
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {/* Monthly bar chart + Recent deals */}
+      <div className="grid gap-5" style={{ gridTemplateColumns: "1fr 1fr" }}>
+        <GlassCard delay={0.48}>
+          <div className="px-6 pb-3 pt-6">
+            <h3 className="font-black tracking-tighter text-slate-800" style={{ fontSize: 14 }}>Pratiche per Mese</h3>
+            <p className="mt-1 text-slate-400" style={{ fontSize: 10 }}>Ultimi 12 mesi</p>
+          </div>
+          <div className="px-4 pb-5" style={{ height: 200 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={monthlyData} barSize={18} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#818cf8" />
+                    <stop offset="100%" stopColor="#6366f1" stopOpacity=".7" />
+                  </linearGradient>
+                </defs>
+                <XAxis dataKey="label" tick={{ fontSize: 9.5, fill: "#94a3b8", fontWeight: 700 }} axisLine={false} tickLine={false} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 9, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                <Tooltip
+                  cursor={{ fill: "rgba(99,102,241,.07)" }}
+                  content={({ active, payload, label }) =>
+                    active && payload?.length ? (
+                      <div className="rounded-xl border border-white/70 bg-white/90 px-3 py-2 shadow-lg backdrop-blur-xl">
+                        <p className="font-black text-slate-800" style={{ fontSize: 11 }}>{payload[0].value} pratiche</p>
+                        <p className="font-semibold text-slate-400" style={{ fontSize: 10 }}>{label}</p>
+                      </div>
+                    ) : null
+                  }
+                />
+                <Bar dataKey="count" fill="url(#barGrad)" radius={[5, 5, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </GlassCard>
+
+        <GlassCard delay={0.52} className="flex flex-col overflow-hidden">
+          <div className="flex items-center justify-between border-b border-slate-200/40 px-6 pb-4 pt-6">
+            <div>
+              <h3 className="font-black tracking-tighter text-slate-800" style={{ fontSize: 14 }}>Ultime Pratiche</h3>
+              <p className="mt-1 text-slate-400" style={{ fontSize: 10 }}>Le più recenti per data di inserimento</p>
+            </div>
+            <button onClick={() => onNavPortfolio?.()} className="font-bold text-indigo-500 transition-colors hover:text-indigo-700" style={{ fontSize: 10.5 }}>Vedi tutte →</button>
+          </div>
+          <div className="flex flex-col divide-y divide-slate-100/80">
+            {recentDeals.map((row) => (
+              <button key={row.id} onClick={() => onOpenDeal(row)} className="flex items-center gap-3 px-5 py-3 text-left transition-colors hover:bg-indigo-500/[.03]">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-semibold text-slate-700" style={{ fontSize: 11 }} title={row.a}>{row.a}</p>
+                  <div className="mt-1 flex items-center gap-2">
+                    <TypeChip t={row.t} />
+                    {row.createdAt && <span className="text-slate-400" style={{ fontSize: 9.5 }}>{new Date(row.createdAt).toLocaleDateString("it-IT", { day: "2-digit", month: "short" })}</span>}
+                  </div>
+                </div>
+                <RoiChip r={row.r} />
+              </button>
+            ))}
+          </div>
+        </GlassCard>
+      </div>
+
+      <GlassCard delay={0.56} className="overflow-hidden">
         <div className="flex items-center justify-between border-b border-slate-200/40 px-6 pb-4 pt-6">
           <div>
             <h3 className="font-black tracking-tighter text-slate-800" style={{ fontSize: 14 }}>Top Deals</h3>
@@ -3319,7 +3436,7 @@ function AuthenticatedApp() {
             const c = Number(row.Costo || row.c || 0);
             const r = Number(row.ROI || row.r || 0);
             if (!a || c <= 0) return null;
-            return { a, t: ["Stabili","Terreno"].includes(t) ? t : "Stabili", c, r, note: String(row.Note || row.note || ""), id: "xlsx-" + Date.now() + "-" + idx, source: "imported-xlsx", city: cityOf(a), status: statusOf(r) };
+            return { a, t: ["Stabili","Terreno","Flipping"].includes(t) ? t : "Stabili", c, r, note: String(row.Note || row.note || ""), id: "xlsx-" + Date.now() + "-" + idx, source: "imported-xlsx", city: cityOf(a), status: statusOf(r) };
           })
           .filter(Boolean);
         if (!parsed.length) throw new Error("Nessuna riga valida (richiede colonne: Indirizzo, Costo > 0)");
@@ -3373,7 +3490,7 @@ function AuthenticatedApp() {
 
   const renderView = () => {
     switch (nav) {
-      case "dashboard": return <DashboardView onOpenDeal={openDeal} allDeals={allDeals} />;
+      case "dashboard": return <DashboardView onOpenDeal={openDeal} allDeals={allDeals} onOpenNewDeal={(tipo) => { setEditDeal({ t: tipo }); setNewDealOpen(true); }} onNavPortfolio={() => setNav("portfolio")} />;
       case "portfolio": return <PortfolioView onOpenDeal={openDeal} quickFilter={quickFilter} compareIds={compareIds} onToggleCompare={toggleCompare} onOpenCompare={openCompare} allDeals={allDeals} onEditDeal={handleEditDeal} onDeleteDeal={handleDeleteDeal} onApproveDeal={handleApproveDeal} onSuspendDeal={handleSuspendDeal} />;
       case "map": return <MapView onOpenDeal={openDeal} allDeals={allDeals} onCityFilter={handleCityFilter} />;
       case "report": return <ReportView allDeals={allDeals} generatedReports={generatedReports} onGenerateReport={addReport} />;
