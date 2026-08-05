@@ -1,5 +1,12 @@
 ﻿import { useState, useMemo, useEffect, useRef, useCallback, memo } from "react";
 import {
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut as firebaseSignOut,
+} from "firebase/auth";
+import { auth } from "./firebase.js";
+import {
   LayoutDashboard,
   Briefcase,
   Map,
@@ -456,6 +463,146 @@ function useCountUp(target, duration = 600) {
     requestAnimationFrame(step);
   }, [target, duration]);
   return val;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   FIREBASE AUTH HOOK + LOGIN SCREEN
+   ══════════════════════════════════════════════════════════════════ */
+function useFirebaseAuth() {
+  const [user, setUser] = useState(undefined); // undefined = still loading
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (u) => setUser(u ?? null));
+    return unsub;
+  }, []);
+  const signIn = (email, password) => signInWithEmailAndPassword(auth, email, password);
+  const signUp = (email, password) => createUserWithEmailAndPassword(auth, email, password);
+  const signOut = () => firebaseSignOut(auth);
+  return { user, signIn, signUp, signOut };
+}
+
+const AUTH_ERRORS = {
+  "auth/user-not-found": "Utente non trovato",
+  "auth/wrong-password": "Password errata",
+  "auth/invalid-credential": "Credenziali non valide",
+  "auth/email-already-in-use": "Email già in uso",
+  "auth/weak-password": "Password troppo corta (min. 6 caratteri)",
+  "auth/invalid-email": "Indirizzo email non valido",
+  "auth/too-many-requests": "Troppi tentativi. Riprova tra qualche minuto",
+};
+
+function LoginScreen({ signIn, signUp }) {
+  const [mode, setMode] = useState("login"); // "login" | "register"
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    try {
+      if (mode === "login") await signIn(email, password);
+      else await signUp(email, password);
+    } catch (err) {
+      setError(AUTH_ERRORS[err.code] || "Errore di autenticazione");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div
+      className="flex min-h-screen items-center justify-center"
+      style={{ fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Display',Inter,sans-serif", background: "#f6f7fb" }}
+    >
+      <style>{GLOBAL_CSS}</style>
+      <div className="pointer-events-none fixed inset-0 z-0">
+        <div className="absolute" style={{ top: -160, left: "16%", width: 620, height: 620, background: "radial-gradient(circle,rgba(99,102,241,.11),transparent 62%)" }} />
+        <div className="absolute" style={{ top: "34%", right: -180, width: 560, height: 560, background: "radial-gradient(circle,rgba(16,185,129,.085),transparent 64%)" }} />
+        <div className="absolute" style={{ bottom: -190, left: "42%", width: 520, height: 520, background: "radial-gradient(circle,rgba(139,92,246,.075),transparent 66%)" }} />
+      </div>
+      <div
+        className="relative z-10 w-full overflow-hidden rounded-3xl border border-white/50 backdrop-blur-2xl"
+        style={{
+          maxWidth: 400,
+          background: "linear-gradient(165deg,rgba(255,255,255,.88),rgba(255,255,255,.62))",
+          boxShadow: "0 4px 12px rgba(15,23,42,.04), 0 20px 60px -16px rgba(99,102,241,.18), inset 0 1px 0 rgba(255,255,255,.9)",
+          animation: "riseIn .7s cubic-bezier(.22,1,.36,1) forwards",
+        }}
+      >
+        <div className="px-8 pb-8 pt-8">
+          <div className="mb-7 flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl" style={{ background: "linear-gradient(140deg,#6366f1,#8b5cf6)", boxShadow: "0 8px 22px -6px rgba(99,102,241,.7)" }}>
+              <span className="font-black text-white" style={{ fontSize: 14 }}>E</span>
+            </div>
+            <div>
+              <p className="font-black tracking-tight text-slate-800" style={{ fontSize: 15 }}>Investment Terminal</p>
+              <p className="font-semibold text-slate-400" style={{ fontSize: 10.5 }}>{mode === "login" ? "Accedi al tuo account" : "Crea un nuovo account"}</p>
+            </div>
+          </div>
+          <form onSubmit={handleSubmit} className="space-y-3">
+            <div>
+              <label className="mb-1.5 block font-bold uppercase tracking-[.18em] text-slate-400" style={{ fontSize: 9 }}>Email</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                placeholder="nome@azienda.it"
+                className="w-full rounded-xl border border-slate-200/80 bg-white/70 px-3.5 py-2.5 text-slate-700 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20"
+                style={{ fontSize: 13 }}
+              />
+            </div>
+            <div>
+              <label className="mb-1.5 block font-bold uppercase tracking-[.18em] text-slate-400" style={{ fontSize: 9 }}>Password</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                placeholder={mode === "register" ? "Min. 6 caratteri" : "••••••••"}
+                className="w-full rounded-xl border border-slate-200/80 bg-white/70 px-3.5 py-2.5 text-slate-700 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20"
+                style={{ fontSize: 13 }}
+              />
+            </div>
+            {error && (
+              <div className="flex items-center gap-2 rounded-xl bg-rose-50 px-3.5 py-2.5">
+                <AlertTriangle size={13} className="shrink-0 text-rose-500" />
+                <p className="font-semibold text-rose-600" style={{ fontSize: 11 }}>{error}</p>
+              </div>
+            )}
+            <button
+              type="submit"
+              disabled={loading}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl py-3 font-bold text-white transition-all"
+              style={{
+                fontSize: 12.5,
+                background: "linear-gradient(140deg,#6366f1,#7c3aed)",
+                boxShadow: "0 8px 22px -8px rgba(99,102,241,.75), inset 0 1px 0 rgba(255,255,255,.22)",
+                opacity: loading ? 0.7 : 1,
+              }}
+            >
+              {loading ? (
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+              ) : (
+                <>{mode === "login" ? "Accedi" : "Crea account"}</>
+              )}
+            </button>
+          </form>
+          <div className="mt-4 text-center">
+            <button
+              onClick={() => { setMode((m) => m === "login" ? "register" : "login"); setError(null); }}
+              className="font-semibold text-indigo-500 transition-colors hover:text-indigo-700"
+              style={{ fontSize: 11 }}
+            >
+              {mode === "login" ? "Non hai un account? Registrati" : "Hai già un account? Accedi"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -2595,7 +2742,13 @@ const PortfolioView = memo(({ onOpenDeal, quickFilter, compareIds, onToggleCompa
     return [...d].sort((a, b) => (dir === "desc" ? b.r - a.r : a.r - b.r));
   }, [tab, q, dir, quickFilter, allDeals]);
 
+  const PAGE_SIZE = 50;
+  const [page, setPage] = useState(1);
+  useEffect(() => { setPage(1); }, [tab, q, dir, quickFilter]);
   useEffect(() => setMenuRowId(null), [tab, q, dir]);
+  const pageRows = rows.slice(0, page * PAGE_SIZE);
+  const hasMore = pageRows.length < rows.length;
+
   const capF = rows.reduce((s, d) => s + d.c, 0);
   const roiF = rows.length ? rows.reduce((s, d) => s + d.r, 0) / rows.length : 0;
 
@@ -2648,7 +2801,7 @@ const PortfolioView = memo(({ onOpenDeal, quickFilter, compareIds, onToggleCompa
               </tr>
             </thead>
             <tbody>
-              {rows.slice(0, 120).map((row, idx) => {
+              {pageRows.map((row, idx) => {
                 const hov = hoverRow === row.id;
                 const checked = compareIds.includes(row.id);
                 const disabled = !checked && compareIds.length >= 3;
@@ -2684,7 +2837,14 @@ const PortfolioView = memo(({ onOpenDeal, quickFilter, compareIds, onToggleCompa
           </table>
         </div>
         <div className="flex shrink-0 items-center justify-between border-t border-slate-200/40 bg-slate-50/50 px-6 py-3.5">
-          <span className="text-slate-400" style={{ fontSize: 10 }}>Mostrando <strong className="font-black tabular-nums text-slate-600">{Math.min(rows.length, 120)}</strong> di <strong className="font-black tabular-nums text-slate-600">{rows.length}</strong></span>
+          <span className="text-slate-400" style={{ fontSize: 10 }}>
+            Mostrando <strong className="font-black tabular-nums text-slate-600">{pageRows.length}</strong> di <strong className="font-black tabular-nums text-slate-600">{rows.length}</strong>
+            {hasMore && (
+              <button onClick={() => setPage((p) => p + 1)} className="ml-3 font-bold text-indigo-500 underline underline-offset-2 hover:text-indigo-700" style={{ fontSize: 10 }}>
+                Carica altri {Math.min(PAGE_SIZE, rows.length - pageRows.length)}
+              </button>
+            )}
+          </span>
           <div className="flex gap-6">
             <span className="text-slate-400" style={{ fontSize: 10 }}>Capitale <strong className="font-black tabular-nums tracking-tight text-slate-700">{eur(capF)}</strong></span>
             <span className="text-slate-400" style={{ fontSize: 10 }}>ROI medio <strong className="font-black tabular-nums tracking-tight" style={{ color: roiF >= 0 ? "#2563eb" : "#db2777" }}>{roiF > 0 ? "+" : ""}{roiF.toFixed(1)}%</strong></span>
@@ -2703,7 +2863,7 @@ function loadGoogleMaps(apiKey) {
   if (window.__gmapsLoadingPromise) return window.__gmapsLoadingPromise;
   window.__gmapsLoadingPromise = new Promise((resolve, reject) => {
     const script = document.createElement("script");
-    script.src = "https://maps.googleapis.com/maps/api/js?key=" + apiKey + "&v=3";
+    script.src = "https://maps.googleapis.com/maps/api/js?key=" + apiKey + "&v=3&loading=async";
     script.async = true;
     script.onload = () => resolve(window.google.maps);
     script.onerror = () => reject(new Error("Impossibile caricare Google Maps"));
@@ -2999,6 +3159,27 @@ const SettingsView = memo(({ profile, onSaveProfile, allDeals }) => {
    ROOT
    ══════════════════════════════════════════════════════════════════ */
 export default function ElektaTerminal() {
+  const { user, signIn, signUp } = useFirebaseAuth();
+
+  // user === undefined → still resolving auth state → show spinner
+  if (user === undefined) {
+    return (
+      <div className="flex min-h-screen items-center justify-center" style={{ background: "#f6f7fb" }}>
+        <style>{GLOBAL_CSS}</style>
+        <span className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-indigo-500" />
+      </div>
+    );
+  }
+
+  // Not authenticated → show login
+  if (!user) {
+    return <LoginScreen signIn={signIn} signUp={signUp} />;
+  }
+
+  return <AuthenticatedApp />;
+}
+
+function AuthenticatedApp() {
   const { loading } = usePortfolioData();
   const { allDeals: persistedDeals, manualDeals, addDeal, deleteDeal, updateDeal, setStatus } = usePersistentDeals();
   const [importedDeals, setImportedDeals] = useState([]);
@@ -3025,12 +3206,15 @@ export default function ElektaTerminal() {
     });
   }, []);
 
-  const handleLogout = useCallback(() => {
+  const { signOut: fbSignOut } = useFirebaseAuth();
+
+  const handleLogout = useCallback(async () => {
     ["elekta_manual_deals", "elekta_overrides", "elekta_profile", "elekta_reports"].forEach((k) => {
       try { localStorage.removeItem(k); } catch {}
     });
+    try { await fbSignOut(); } catch {}
     window.location.reload();
-  }, []);
+  }, [fbSignOut]);
 
   const [nav, setNav] = useState("dashboard");
   const [activeDeal, setActiveDeal] = useState(null);
@@ -3040,6 +3224,7 @@ export default function ElektaTerminal() {
   const [newDealClosing, setNewDealClosing] = useState(false);
   const [editDeal, setEditDeal] = useState(null);
   const [toastMsg, setToastMsg] = useState(null);
+  const [importLoading, setImportLoading] = useState(false);
   const importRef = useRef(null);
 
   const [compareIds, setCompareIds] = useState([]);
@@ -3091,14 +3276,23 @@ export default function ElektaTerminal() {
   const handleImportExcel = useCallback((e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (!file.name.match(/\.(xlsx|xls)$/i)) {
+      setToastMsg("Errore: il file deve essere .xlsx o .xls");
+      e.target.value = "";
+      return;
+    }
+    setImportLoading(true);
     const reader = new FileReader();
+    reader.onerror = () => { setToastMsg("Errore: impossibile leggere il file"); setImportLoading(false); };
     reader.onload = (ev) => {
       try {
         const XLSX = window.XLSX;
-        if (!XLSX) { alert("Installa SheetJS per usare l'import Excel."); return; }
+        if (!XLSX) { setToastMsg("SheetJS non disponibile — aggiungi <script src=\"https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js\"> all'index.html"); setImportLoading(false); return; }
         const wb = XLSX.read(ev.target.result, { type: "array" });
+        if (!wb.SheetNames.length) throw new Error("File Excel vuoto o corrotto");
         const ws = wb.Sheets[wb.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json(ws);
+        const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
+        if (!rows.length) throw new Error("Nessuna riga trovata nel foglio");
         const parsed = rows
           .map((row, idx) => {
             const a = String(row.Indirizzo || row.a || "").trim();
@@ -3106,18 +3300,20 @@ export default function ElektaTerminal() {
             const c = Number(row.Costo || row.c || 0);
             const r = Number(row.ROI || row.r || 0);
             if (!a || c <= 0) return null;
-            return { a, t, c, r, note: "", id: "xlsx-" + Date.now() + "-" + idx, source: "imported-xlsx", city: cityOf(a), status: statusOf(r) };
+            return { a, t: ["Stabili","Terreno"].includes(t) ? t : "Stabili", c, r, note: String(row.Note || row.note || ""), id: "xlsx-" + Date.now() + "-" + idx, source: "imported-xlsx", city: cityOf(a), status: statusOf(r) };
           })
           .filter(Boolean);
+        if (!parsed.length) throw new Error("Nessuna riga valida (richiede colonne: Indirizzo, Costo > 0)");
         setImportedDeals((prev) => [...prev, ...parsed]);
-        setToastMsg(`${parsed.length} pratiche importate da Excel`);
+        setToastMsg(`${parsed.length} pratiche importate da "${file.name}"`);
       } catch (err) {
-        console.error(err);
-        setToastMsg("Errore durante l'import del file Excel");
+        setToastMsg("Errore import: " + (err.message || "file non valido"));
+      } finally {
+        setImportLoading(false);
+        e.target.value = "";
       }
     };
     reader.readAsArrayBuffer(file);
-    e.target.value = "";
   }, []);
 
   const toggleCompare = useCallback((id) => {
@@ -3218,9 +3414,9 @@ export default function ElektaTerminal() {
               Nuova Pratica
             </button>
             <input ref={importRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportExcel} />
-            <button onClick={() => importRef.current?.click()} className="flex items-center gap-1.5 rounded-xl border border-white/70 bg-white/55 px-3 py-2 font-semibold text-slate-600 backdrop-blur-xl transition-all duration-200 hover:bg-white" style={{ fontSize: 11 }}>
-              <FileUp size={12} strokeWidth={1.5} />
-              Importa Excel
+            <button onClick={() => importRef.current?.click()} disabled={importLoading} className="flex items-center gap-1.5 rounded-xl border border-white/70 bg-white/55 px-3 py-2 font-semibold text-slate-600 backdrop-blur-xl transition-all duration-200 hover:bg-white" style={{ fontSize: 11, opacity: importLoading ? 0.6 : 1 }}>
+              {importLoading ? <span className="h-3 w-3 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600" /> : <FileUp size={12} strokeWidth={1.5} />}
+              {importLoading ? "Caricamento…" : "Importa Excel"}
             </button>
             <button onClick={() => printDeals([...allDeals].sort((a, b) => b.r - a.r).slice(0, 10))} className="flex items-center gap-1.5 rounded-xl px-3.5 py-2 font-bold text-white transition-transform duration-200 hover:-translate-y-px active:translate-y-0" style={{ fontSize: 11, background: "linear-gradient(140deg,#6366f1,#7c3aed)", boxShadow: "0 8px 22px -8px rgba(99,102,241,.75), inset 0 1px 0 rgba(255,255,255,.22)" }}>
               <Download size={12} strokeWidth={1.5} />
